@@ -1,8 +1,9 @@
 import { POST as postTextCapture } from "@/app/api/capture/text/route";
-import { getActiveObjective, saveUserObjective } from "@/lib/db/queries";
+import { getActiveObjective, getConversation, saveUserObjective } from "@/lib/db/queries";
 import { processConversation } from "@/lib/intelligence/process";
 import { recommendNextAction } from "@/lib/intelligence/recommend";
 import {
+  createRequestId,
   errorResponse,
   HttpError,
   jsonResponse,
@@ -47,8 +48,16 @@ export async function POST(request: Request) {
   try {
     const body = await parseJsonBody<WorkflowFullFlowRequest>(request);
     const userId = requiredString(body.userId, "userId");
-    const rawText = requiredString(body.rawText, "rawText");
-    const captureType = body.captureType ?? "text";
+    const capturedConversation = body.conversationId ? getConversation(body.conversationId) : null;
+    if (body.conversationId && !capturedConversation) {
+      throw new HttpError(404, "CONVERSATION_NOT_FOUND", "Captured conversation was not found.");
+    }
+    if (capturedConversation && capturedConversation.userId !== userId) {
+      throw new HttpError(404, "CONVERSATION_NOT_FOUND", "Captured conversation was not found.");
+    }
+
+    const rawText = capturedConversation?.rawText ?? requiredString(body.rawText, "rawText");
+    const captureType = capturedConversation?.captureType ?? body.captureType ?? "text";
 
     const ensureObjective = body.ensureObjective !== false;
     let objective = await getActiveObjective(userId);
@@ -61,19 +70,32 @@ export async function POST(request: Request) {
       objectiveCreated = true;
     }
 
-    const captureResponse = await postTextCapture(
-      new Request("http://workflow.local/api/capture/text", {
-        method: "POST",
-        body: JSON.stringify({
-          userId,
-          rawText,
-          eventContext: body.eventContext ?? objective.eventContext ?? undefined,
-          capturedAt: body.capturedAt,
+    let capture: CaptureAcceptedResponse;
+    if (capturedConversation) {
+      const requestId = body.requestId ?? createRequestId();
+      capture = {
+        requestId,
+        conversationId: capturedConversation.id,
+        status: "captured",
+        streamUrl: `/api/intelligence/process?conversationId=${encodeURIComponent(
+          capturedConversation.id,
+        )}&requestId=${encodeURIComponent(requestId)}`,
+      };
+    } else {
+      const captureResponse = await postTextCapture(
+        new Request("http://workflow.local/api/capture/text", {
+          method: "POST",
+          body: JSON.stringify({
+            userId,
+            rawText,
+            eventContext: body.eventContext ?? objective.eventContext ?? undefined,
+            capturedAt: body.capturedAt,
+          }),
         }),
-      }),
-    );
-    if (!captureResponse.ok) return captureResponse;
-    const capture = (await captureResponse.json()) as CaptureAcceptedResponse;
+      );
+      if (!captureResponse.ok) return captureResponse;
+      capture = (await captureResponse.json()) as CaptureAcceptedResponse;
+    }
 
     const processed = await processConversation({
       requestId: capture.requestId,
@@ -81,9 +103,9 @@ export async function POST(request: Request) {
       conversationId: capture.conversationId,
       captureType,
       rawText,
-      transcript: captureType === "voice" ? rawText : undefined,
+      transcript: captureType === "voice" ? capturedConversation?.transcript ?? rawText : undefined,
       cardText: captureType === "card" ? rawText : undefined,
-      eventContext: body.eventContext ?? objective.eventContext ?? undefined,
+      eventContext: body.eventContext ?? capturedConversation?.eventContext ?? objective.eventContext ?? undefined,
     });
 
     const recommendationPackage = await recommendNextAction({

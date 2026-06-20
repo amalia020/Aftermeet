@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   Check,
+  Trash2,
   Edit3,
   Heart,
   ListChecks,
@@ -38,7 +39,7 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
     if (!person.recommendation.contactId) return;
     setBusyOutcome(outcomeType);
     try {
-      await fetch("/api/outcomes", {
+      const response = await fetch("/api/outcomes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -48,8 +49,10 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
           outcomeType,
         }),
       });
+      if (!response.ok) throw new Error("Unable to record outcome.");
       setSavedOutcome(outcomeType);
       router.refresh();
+      if (outcomeType === "marked_not_relevant") router.push("/");
     } finally {
       setBusyOutcome(null);
     }
@@ -228,6 +231,14 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
         >
           <Snowflake size={17} />
           Snooze
+        </button>
+        <button
+          className="secondary-action danger-action"
+          disabled={busyOutcome !== null}
+          onClick={() => recordOutcome("marked_not_relevant")}
+        >
+          <Trash2 size={17} />
+          Delete
         </button>
       </div>
     </section>

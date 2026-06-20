@@ -5,7 +5,7 @@ import type { UserObjectiveProfile } from "./user";
 export type ViewState = "ready" | "loading" | "empty" | "error";
 
 export interface OpportunityTerminalViewModel {
-  activeObjective: UserObjectiveProfile;
+  activeObjective: UserObjectiveProfile | null;
 }
 
 export interface CaptureScreenViewModel extends OpportunityTerminalViewModel {

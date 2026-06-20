@@ -1,4 +1,5 @@
 import { createConversation, getActiveObjective } from "@/lib/db/queries";
+import { getServerEnv } from "@/lib/env";
 import {
   createRequestId,
   errorResponse,
@@ -24,7 +25,11 @@ export async function POST(request: Request) {
       throw new HttpError(422, "OBJECTIVE_REQUIRED", "No active objective is available.");
     }
 
-    const transcription = await transcribeVoiceNote({ audioFile });
+    const env = getServerEnv();
+    const transcription = await transcribeVoiceNote({
+      audioFile,
+      languageHint: env.openaiTranscriptionLanguage,
+    });
     const eventContext =
       typeof form.get("eventContext") === "string"
         ? String(form.get("eventContext"))
@@ -49,7 +54,8 @@ export async function POST(request: Request) {
         streamUrl: `/api/intelligence/process?conversationId=${encodeURIComponent(
           conversation.id
         )}&requestId=${encodeURIComponent(requestId)}`,
-        transcriptStatus: transcription.transcript ? "completed" : "fallback_required"
+        transcriptStatus: transcription.transcript ? "completed" : "fallback_required",
+        transcript: transcription.transcript
       },
       202
     );

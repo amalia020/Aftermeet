@@ -48,6 +48,7 @@ export interface CaptureAcceptedResponse {
 
 export interface VoiceCaptureAcceptedResponse extends CaptureAcceptedResponse {
   transcriptStatus: "pending" | "completed" | "fallback_required";
+  transcript?: string;
 }
 
 export interface CardCaptureAcceptedResponse extends CaptureAcceptedResponse {
@@ -187,7 +188,10 @@ export interface WorkflowCaptureWebFallbackResponse {
   webFallback: WebFallbackResponse;
 }
 
-export interface WorkflowFullFlowRequest extends WorkflowCaptureEnrichRequest {
+export interface WorkflowFullFlowRequest extends Omit<WorkflowCaptureEnrichRequest, "rawText"> {
+  rawText?: string;
+  conversationId?: Id;
+  requestId?: Id;
   captureType?: CaptureType;
   status?: ContactStatus;
   hoursSinceLastAction?: number;

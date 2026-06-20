@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEMO_USER_ID, demoConversationText, demoObjective } from "@/lib/demo/fixtures";
 import { json, sseEvents } from "./helpers";
 import { GET as getObjective, POST as postObjective } from "@/app/api/objectives/route";
@@ -26,6 +26,15 @@ import type {
   WorkflowFullFlowResponse,
   WorkflowCaptureWebFallbackResponse
 } from "@/lib/types";
+
+beforeEach(async () => {
+  await postObjective(
+    new Request("http://test/api/objectives", {
+      method: "POST",
+      body: JSON.stringify(demoObjective)
+    })
+  );
+});
 
 const ROUTE_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"] as const;
 const DOCS_INFRASTRUCTURE_PATHS = new Set([
@@ -121,6 +130,39 @@ describe("objective and capture routes", () => {
     const body = await json<VoiceCaptureAcceptedResponse>(response);
     expect(response.status).toBe(202);
     expect(body.transcriptStatus).toBe("completed");
+    expect(body.transcript).toBeTruthy();
+  });
+
+  it("runs full flow from a captured voice conversation", async () => {
+    const form = new FormData();
+    form.set("userId", DEMO_USER_ID);
+    form.set("audioFile", new File([new Uint8Array([1, 2, 3])], "note.webm", { type: "audio/webm" }));
+
+    const captureResponse = await postVoiceCapture(
+      new Request("http://test/api/capture/voice", {
+        method: "POST",
+        body: form
+      })
+    );
+    const capture = await json<VoiceCaptureAcceptedResponse>(captureResponse);
+
+    const response = await postFullFlowWorkflow(
+      new Request("http://test/api/workflows/full-flow", {
+        method: "POST",
+        body: JSON.stringify({
+          userId: DEMO_USER_ID,
+          conversationId: capture.conversationId,
+          requestId: capture.requestId,
+          captureType: "voice"
+        })
+      })
+    );
+    const body = await json<WorkflowFullFlowResponse>(response);
+
+    expect(response.status).toBe(200);
+    expect(body.extractionHandoff.conversation.captureType).toBe("voice");
+    expect(body.extractionHandoff.sourceRecord.sourceType).toBe("user_voice_note");
+    expect(body.recommendationPackage.recommendation.recommendedAction).toBeTruthy();
   });
 
   it("accepts card manual fallback and rejects image-only card input", async () => {

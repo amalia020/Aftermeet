@@ -18,7 +18,6 @@ import {
   listOutcomes,
   listRecommendations
 } from "@/lib/db/queries";
-import { demoObjective } from "@/lib/demo/fixtures";
 import { computeBreakdown } from "./features";
 import { resolveRelationshipState } from "./relationshipState";
 import { generateCandidateActions } from "./candidateActions";
@@ -165,10 +164,11 @@ export function buildRelationshipMoveInputs(input: {
   generatedAt?: string;
   objective?: UserObjectiveProfile;
 }): RelationshipMoveInput[] {
-  const objective = input.objective ?? getActiveObjective(input.userId) ?? demoObjective;
+  const objective = input.objective ?? getActiveObjective(input.userId);
+  if (!objective) return [];
   void input.generatedAt;
   return listRecommendations(input.userId)
-    .filter((rec) => rec.status !== "archived" && rec.status !== "overridden")
+    .filter((rec) => !["archived", "overridden", "snoozed"].includes(rec.status))
     .map((rec) => moveInputForRecommendation(rec, objective));
 }
 
@@ -218,7 +218,8 @@ export function selectStoredDailyMoves(input: {
   generatedAt: string;
   objective?: UserObjectiveProfile;
 }): DailyMoveDecision[] {
-  const objective = input.objective ?? getActiveObjective(input.userId) ?? demoObjective;
+  const objective = input.objective ?? getActiveObjective(input.userId);
+  if (!objective) return [];
   return selectDailyMoves({
     userId: input.userId,
     objective,

@@ -19,7 +19,7 @@ import type {
   UserObjectiveProfile,
   UserObjectiveProfileInput,
 } from "@/lib/types";
-import { DEMO_USER_ID, demoUser } from "@/lib/demo/fixtures";
+import { DEMO_USER_ID } from "@/lib/demo/fixtures";
 import {
   readDatabase,
   updateDatabase,
@@ -54,12 +54,16 @@ function sameCandidate(contact: Contact, candidate: ContactCandidate): boolean {
   );
 }
 
-export function ensureDemoUser(): User {
+export function ensureUser(userId: Id): User {
   return updateDatabase((db) => {
-    const existing = db.users.find((user) => user.id === DEMO_USER_ID);
+    const existing = db.users.find((user) => user.id === userId);
     if (existing) return existing;
-    db.users.push(demoUser);
-    return demoUser;
+    const user: User = {
+      id: userId,
+      createdAt: nowIso(),
+    };
+    db.users.push(user);
+    return user;
   });
 }
 
@@ -82,7 +86,7 @@ export function getActiveObjective(userId: Id): UserObjectiveProfile | null {
 export function saveUserObjective(
   input: UserObjectiveProfileInput & { id?: Id },
 ): UserObjectiveProfile {
-  ensureDemoUser();
+  ensureUser(input.userId);
   return updateDatabase((db) => {
     const timestamp = nowIso();
     const existing = input.id

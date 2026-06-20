@@ -16,7 +16,6 @@ import type {
   User,
   UserObjectiveProfile,
 } from "@/lib/types";
-import { demoObjective, demoUser } from "@/lib/demo/fixtures";
 
 export interface StoredConversationAtoms extends ConversationAtoms {
   id: string;
@@ -45,8 +44,8 @@ export interface LocalDatabase {
 
 function createInitialDatabase(): LocalDatabase {
   return {
-    users: [demoUser],
-    userObjectives: [demoObjective],
+    users: [],
+    userObjectives: [],
     contacts: [],
     conversations: [],
     conversationAtoms: [],

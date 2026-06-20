@@ -1,6 +1,5 @@
 import "server-only";
 
-import { demoObjective } from "@/lib/demo/fixtures";
 import {
   DEMO_USER_ID,
   getActiveObjective,
@@ -53,11 +52,15 @@ export interface BriefMove {
   whyNow: string[];
   whatToAvoid: string[];
   costOfSilence: string;
+  contactId?: Id;
+  recommendationId?: Id;
+  canDefer?: boolean;
   href?: string;
 }
 
 export interface DailyBriefViewModel {
-  activeObjective: UserObjectiveProfile;
+  userId: Id;
+  activeObjective: UserObjectiveProfile | null;
   missionTitle: string;
   missionContext: string;
   currentDate: string;
@@ -84,7 +87,7 @@ export interface RadarNode {
 }
 
 export interface MissionRadarViewModel {
-  objective: UserObjectiveProfile;
+  objective: UserObjectiveProfile | null;
   missionTitle: string;
   nodes: RadarNode[];
   bridges: { id: string; from: string; to: string; label: string }[];
@@ -190,8 +193,8 @@ const ALL_OPPORTUNITY_TYPES: OpportunityType[] = [
   "other",
 ];
 
-function activeObjective(userId = DEMO_USER_ID): UserObjectiveProfile {
-  return getActiveObjective(userId) ?? demoObjective;
+function activeObjective(userId = DEMO_USER_ID): UserObjectiveProfile | null {
+  return getActiveObjective(userId);
 }
 
 function titleCase(value: string): string {
@@ -204,29 +207,32 @@ function titleCase(value: string): string {
 }
 
 function missionTitle(objective: UserObjectiveProfile): string {
+  const primaryGoal = objective.primaryGoal ?? "find_users";
+  const activeGoals = objective.activeGoals ?? [primaryGoal];
   if (
-    objective.primaryGoal === "hire" ||
-    objective.activeGoals.includes("source_candidates")
+    primaryGoal === "hire" ||
+    activeGoals.includes("source_candidates")
   ) {
     return "Recruit Core Talent";
   }
-  if (objective.primaryGoal === "find_users") return "Find Design Users";
-  if (objective.primaryGoal === "raise") return "Build Investor Momentum";
-  if (objective.primaryGoal === "collect_wtp") return "Validate Willingness To Pay";
-  return titleCase(objective.primaryGoal);
+  if (primaryGoal === "find_users") return "Find Design Users";
+  if (primaryGoal === "raise") return "Build Investor Momentum";
+  if (primaryGoal === "collect_wtp") return "Validate Willingness To Pay";
+  return titleCase(primaryGoal);
 }
 
 function missionGap(objective: UserObjectiveProfile): string {
+  const primaryGoal = objective.primaryGoal ?? "find_users";
   if (objective.hiringNeeds?.length) {
     return `Still missing ${objective.hiringNeeds.join(", ").toLowerCase()}.`;
   }
-  if (objective.primaryGoal === "find_users") {
+  if (primaryGoal === "find_users") {
     return "Still missing enough high-fit users with an explicit next event.";
   }
-  if (objective.primaryGoal === "raise") {
+  if (primaryGoal === "raise") {
     return "Still missing investor conversations with clear thesis fit.";
   }
-  return `Still missing relationships that directly advance ${titleCase(objective.primaryGoal).toLowerCase()}.`;
+  return `Still missing relationships that directly advance ${titleCase(primaryGoal).toLowerCase()}.`;
 }
 
 function formatDate(date = new Date()): string {
@@ -313,7 +319,8 @@ function firstAvoidance(rec: ActionRecommendation): string {
   );
 }
 
-function buildPart5Move(move: DailyMoveDecision): BriefMove {
+function buildPart5Move(move: DailyMoveDecision, userId: Id): BriefMove {
+  const rec = getRecommendationForContactSafe(move.contactId, userId);
   return {
     id: move.relationshipId,
     name: move.contactName ?? "Unknown contact",
@@ -326,13 +333,16 @@ function buildPart5Move(move: DailyMoveDecision): BriefMove {
     whyNow: move.whyNow,
     whatToAvoid: move.whatToAvoid,
     costOfSilence: costOfSilenceLabel(move),
+    contactId: move.contactId,
+    recommendationId: rec?.id,
+    canDefer: move.recommendedAction === "wait" || move.recommendedAction === "snooze",
     href: `/contacts/${move.contactId}`,
   };
 }
 
 function liveRecommendations(userId: Id): ActionRecommendation[] {
   return listRecommendations(userId).filter(
-    (rec) => rec.status !== "archived" && rec.status !== "overridden",
+    (rec) => !["archived", "overridden", "snoozed"].includes(rec.status),
   );
 }
 
@@ -390,42 +400,47 @@ function tractionSummary(userId: Id): TractionSummary {
   };
 }
 
-function demoBriefWithObjective(objective: UserObjectiveProfile): DailyBriefViewModel {
-  const moves = demoDailyBrief.moves.map((move) => ({
-    ...move,
-    whyNow: [move.reason],
-    whatToAvoid: ["Do not automate outreach; keep the final action user-controlled."],
-    costOfSilence: "Demo policy preview",
-  }));
+function emptyBrief(userId: Id): DailyBriefViewModel {
   return {
     ...demoDailyBrief,
-    activeObjective: objective,
-    missionTitle: missionTitle(objective),
-    missionContext: objective.eventContext ?? "Active mission context",
+    userId,
+    activeObjective: null,
+    missionTitle: "Set a mission",
+    missionContext: "Create a mission before capturing relationship signals.",
     currentDate: formatDate(),
-    moves,
-    cooling: demoDailyBrief.cooling
-      ? {
-          ...demoDailyBrief.cooling,
-          whyNow: [demoDailyBrief.cooling.reason],
-          whatToAvoid: ["Keep the re-engagement light and specific."],
-          costOfSilence: "Medium cost of silence",
-        }
-      : undefined,
+    headline: "No active mission yet",
+    moves: [],
+    cooling: undefined,
+    missionGap: "Add a mission to start ranking relationship opportunities.",
+    proof: [
+      { label: "Today", value: "0", note: "high-leverage moves" },
+      { label: "Warm", value: "0", note: "relationships captured" },
+      { label: "Blocked", value: "0", note: "waiting or hold states" },
+    ],
   };
 }
 
 export function getDailyBriefViewModel(userId = DEMO_USER_ID): DailyBriefViewModel {
   const objective = activeObjective(userId);
+  if (!objective) return emptyBrief(userId);
   const recs = liveRecommendations(userId);
-  if (!recs.length) return demoBriefWithObjective(objective);
+  if (!recs.length) {
+    return {
+      ...emptyBrief(userId),
+      activeObjective: objective,
+      missionTitle: missionTitle(objective),
+      missionContext: objective.eventContext ?? "Active mission context",
+      headline: "No critical relationship moves today",
+      missionGap: missionGap(objective),
+    };
+  }
 
   const dailyMoves = selectStoredDailyMoves({
     userId,
     objective,
     generatedAt: new Date().toISOString()
   });
-  const moves = dailyMoves.map(buildPart5Move);
+  const moves = dailyMoves.map((move) => buildPart5Move(move, userId));
   const scoredMoves = scoreStoredRelationshipMoves({
     userId,
     objective,
@@ -439,6 +454,7 @@ export function getDailyBriefViewModel(userId = DEMO_USER_ID): DailyBriefViewMod
   ).length;
 
   return {
+    userId,
     activeObjective: objective,
     missionTitle: missionTitle(objective),
     missionContext: objective.eventContext ?? "Active mission context",
@@ -447,7 +463,7 @@ export function getDailyBriefViewModel(userId = DEMO_USER_ID): DailyBriefViewMod
       ? `${moves.length} best move${moves.length === 1 ? "" : "s"} can advance ${missionTitle(objective)}`
       : "No critical relationship moves today",
     moves,
-    cooling: coolingMove ? buildPart5Move(coolingMove) : undefined,
+    cooling: coolingMove ? buildPart5Move(coolingMove, userId) : undefined,
     missionGap: missionGap(objective),
     proof: [
       { label: "Today", value: String(moves.length), note: "high-leverage moves" },
@@ -459,6 +475,14 @@ export function getDailyBriefViewModel(userId = DEMO_USER_ID): DailyBriefViewMod
 
 export function getMissionRadarViewModel(userId = DEMO_USER_ID): MissionRadarViewModel {
   const objective = activeObjective(userId);
+  if (!objective) {
+    return {
+      objective: null,
+      missionTitle: "Set a mission",
+      nodes: [],
+      bridges: [],
+    };
+  }
   const recs = liveRecommendations(userId);
   if (!recs.length) {
     return {
@@ -558,7 +582,16 @@ function getRecommendationForContactSafe(contactId: Id, userId: Id): ActionRecom
 
 export function getRelationshipBoardViewModel(userId = DEMO_USER_ID): RelationshipBoardViewModel {
   const recs = liveRecommendations(userId);
-  if (!recs.length) return demoRelationshipBoard;
+  if (!recs.length) {
+    return {
+      state: "empty",
+      columns: [],
+      sections: demoRelationshipBoard.sections.map((section) => ({
+        ...section,
+        cards: [],
+      })),
+    };
+  }
 
   const sections: BoardSection[] = [
     {
@@ -600,7 +633,7 @@ export function getRelationshipBoardViewModel(userId = DEMO_USER_ID): Relationsh
 
   const scoredMoves = scoreStoredRelationshipMoves({
     userId,
-    objective: activeObjective(userId),
+    objective: activeObjective(userId) ?? undefined,
     generatedAt: new Date().toISOString()
   });
 
@@ -701,7 +734,7 @@ export function getPersonIntelligenceViewModel(
   const draft: Draft | null = rec ? getDraftForRecommendation(rec.id) : null;
   const move = scoreStoredRelationshipMoves({
     userId,
-    objective: activeObjective(userId),
+    objective: activeObjective(userId) ?? undefined,
     generatedAt: new Date().toISOString()
   }).find((candidate) => candidate.contactId === contact.id);
   const evidenceFacts = listEvidenceFacts(contact.id)

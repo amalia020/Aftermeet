@@ -219,6 +219,22 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
           }
         }
       },
+      "/api/realtime/transcription/session": {
+        post: {
+          tags: ["Capture"],
+          summary: "Create a realtime transcription session",
+          description:
+            "Mints a short-lived OpenAI Realtime client secret for browser WebRTC transcription without exposing the server API key.",
+          requestBody: jsonRequest(ref("RealtimeTranscriptionSessionRequest"), {
+            userId: DEMO_USER_ID
+          }),
+          responses: {
+            "200": jsonResponse(ref("RealtimeTranscriptionSessionResponse")),
+            "503": jsonResponse(ref("ErrorResponse"), "OpenAI is not configured"),
+            ...errorResponses()
+          }
+        }
+      },
       "/api/capture/card": {
         post: {
           tags: ["Capture"],
@@ -678,11 +694,32 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
                 transcriptStatus: {
                   type: "string",
                   enum: ["pending", "completed", "fallback_required"]
-                }
+                },
+                transcript: stringSchema
               },
               required: ["transcriptStatus"]
             }
           ]
+        },
+        RealtimeTranscriptionSessionRequest: {
+          type: "object",
+          properties: {
+            userId: stringSchema
+          }
+        },
+        RealtimeTranscriptionSessionResponse: {
+          type: "object",
+          properties: {
+            clientSecret: stringSchema,
+            expiresAt: { type: "number" },
+            model: stringSchema,
+            language: stringSchema,
+            delay: {
+              type: "string",
+              enum: ["minimal", "low", "medium", "high", "xhigh"]
+            }
+          },
+          required: ["clientSecret", "model", "language", "delay"]
         },
         CardCaptureAcceptedResponse: {
           allOf: [

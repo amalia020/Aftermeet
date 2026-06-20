@@ -51,16 +51,21 @@ function splitList(value: FormDataEntryValue | null): string[] {
     .filter(Boolean);
 }
 
-export function ObjectiveEditor({ objective }: { objective: UserObjectiveProfile }) {
+export function ObjectiveEditor({ objective }: { objective: UserObjectiveProfile | null }) {
   const router = useRouter();
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const userId = objective?.userId ?? "user_demo";
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const primaryGoal = String(form.get("primaryGoal")) as UserGoal;
     const activeGoals = splitList(form.get("activeGoals")) as UserGoal[];
+    const attentionBudget =
+      Number(form.get("attentionBudgetToday")) ||
+      objective?.attentionBudgetToday ||
+      5;
 
     setSaving(true);
     setSaved(false);
@@ -69,22 +74,22 @@ export function ObjectiveEditor({ objective }: { objective: UserObjectiveProfile
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          id: objective.id,
-          userId: objective.userId,
+          id: objective?.id,
+          userId,
           role: String(form.get("role")) as UserRole,
           primaryGoal,
           activeGoals: activeGoals.length ? activeGoals : [primaryGoal],
           secondaryGoals: splitList(form.get("secondaryGoals")) as UserGoal[],
           eventContext: String(form.get("eventContext") ?? ""),
           companyName: String(form.get("companyName") ?? ""),
-          companyStage: objective.companyStage,
+          companyStage: objective?.companyStage,
           productDescription: String(form.get("productDescription") ?? ""),
           targetCustomer: String(form.get("targetCustomer") ?? ""),
           currentTraction: String(form.get("currentTraction") ?? ""),
-          fundraisingStatus: objective.fundraisingStatus,
+          fundraisingStatus: objective?.fundraisingStatus,
           hiringNeeds: splitList(form.get("hiringNeeds")),
-          attentionBudgetToday: Number(form.get("attentionBudgetToday") ?? 5),
-          preferredTone: objective.preferredTone,
+          attentionBudgetToday: attentionBudget,
+          preferredTone: objective?.preferredTone ?? "warm",
           constraints: splitList(form.get("constraints")),
         }),
       });
@@ -105,7 +110,8 @@ export function ObjectiveEditor({ objective }: { objective: UserObjectiveProfile
         <div className="objective-grid">
           <label>
             <span>Role</span>
-            <select defaultValue={objective.role} name="role">
+            <select defaultValue={objective?.role ?? ""} name="role" required>
+              <option disabled value="">Choose role</option>
               {roleOptions.map((role) => (
                 <option key={role} value={role}>
                   {titleCase(role)}
@@ -115,7 +121,8 @@ export function ObjectiveEditor({ objective }: { objective: UserObjectiveProfile
           </label>
           <label>
             <span>Primary goal</span>
-            <select defaultValue={objective.primaryGoal} name="primaryGoal">
+            <select defaultValue={objective?.primaryGoal ?? ""} name="primaryGoal" required>
+              <option disabled value="">Choose goal</option>
               {goalOptions.map((goal) => (
                 <option key={goal} value={goal}>
                   {titleCase(goal)}
@@ -125,16 +132,16 @@ export function ObjectiveEditor({ objective }: { objective: UserObjectiveProfile
           </label>
           <label>
             <span>Company</span>
-            <input defaultValue={objective.companyName ?? ""} name="companyName" />
+            <input defaultValue={objective?.companyName ?? ""} name="companyName" />
           </label>
           <label>
             <span>Event context</span>
-            <input defaultValue={objective.eventContext ?? ""} name="eventContext" />
+            <input defaultValue={objective?.eventContext ?? ""} name="eventContext" />
           </label>
           <label>
             <span>Attention budget</span>
             <input
-              defaultValue={objective.attentionBudgetToday}
+              defaultValue={objective?.attentionBudgetToday ?? ""}
               min={1}
               name="attentionBudgetToday"
               type="number"
@@ -142,28 +149,28 @@ export function ObjectiveEditor({ objective }: { objective: UserObjectiveProfile
           </label>
           <label>
             <span>Active goals</span>
-            <input defaultValue={objective.activeGoals.join(", ")} name="activeGoals" />
+            <input defaultValue={objective?.activeGoals.join(", ") ?? ""} name="activeGoals" />
           </label>
         </div>
 
         <label>
           <span>Product description</span>
-          <textarea defaultValue={objective.productDescription ?? ""} name="productDescription" />
+          <textarea defaultValue={objective?.productDescription ?? ""} name="productDescription" />
         </label>
         <label>
           <span>Target customer</span>
-          <textarea defaultValue={objective.targetCustomer ?? ""} name="targetCustomer" />
+          <textarea defaultValue={objective?.targetCustomer ?? ""} name="targetCustomer" />
         </label>
         <label>
           <span>Hiring needs</span>
-          <textarea defaultValue={(objective.hiringNeeds ?? []).join("\n")} name="hiringNeeds" />
+          <textarea defaultValue={(objective?.hiringNeeds ?? []).join("\n")} name="hiringNeeds" />
         </label>
         <label>
           <span>Constraints</span>
-          <textarea defaultValue={objective.constraints.join("\n")} name="constraints" />
+          <textarea defaultValue={(objective?.constraints ?? []).join("\n")} name="constraints" />
         </label>
-        <input defaultValue={objective.secondaryGoals.join(", ")} name="secondaryGoals" type="hidden" />
-        <input defaultValue={objective.currentTraction ?? ""} name="currentTraction" type="hidden" />
+        <input defaultValue={objective?.secondaryGoals.join(", ") ?? ""} name="secondaryGoals" type="hidden" />
+        <input defaultValue={objective?.currentTraction ?? ""} name="currentTraction" type="hidden" />
 
         <button className="primary-action objective-save" disabled={saving} type="submit">
           {saved ? <Check size={17} /> : <Save size={17} />}

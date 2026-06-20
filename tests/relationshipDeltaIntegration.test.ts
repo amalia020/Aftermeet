@@ -5,6 +5,7 @@ import {
   DEMO_CONTACT_ID,
   DEMO_CONVERSATION_ID,
   DEMO_USER_ID,
+  demoObjective,
   demoExtractionResult,
   part2DemoEvidenceBundle,
   part3DemoRecommendationPackage
@@ -13,6 +14,7 @@ import {
   saveConversationAtoms,
   saveEvidenceBundle,
   saveRecommendation,
+  upsertObjective,
   upsertContact
 } from "@/lib/db/queries";
 import { buildRelationshipMoveInputs, selectStoredDailyMoves } from "@/lib/intelligence/layer5/adapters";
@@ -49,6 +51,7 @@ function saveDemoRelationship(input: {
   bundle?: Partial<EvidenceBundle>;
   recommendation?: Partial<ActionRecommendation>;
 } = {}) {
+  upsertObjective(demoObjective);
   saveDemoContact(input.contact);
   saveConversationAtoms({
     conversationId: DEMO_CONVERSATION_ID,
@@ -135,6 +138,56 @@ describe("Part 5 stored adapter", () => {
     expect(response.status).toBe(201);
     expect(body.outcome.outcomeType).toBe("details_confirmed");
     expect(body.updatedRecommendation?.status).toBe("overridden");
+    expect(selectStoredDailyMoves({ userId: DEMO_USER_ID, generatedAt })).toHaveLength(0);
+  });
+
+  it("clears daily moves after they are snoozed", async () => {
+    saveDemoRelationship();
+
+    expect(selectStoredDailyMoves({ userId: DEMO_USER_ID, generatedAt })).toHaveLength(1);
+
+    const response = await postOutcome(
+      new Request("http://test/api/outcomes", {
+        method: "POST",
+        body: JSON.stringify({
+          userId: DEMO_USER_ID,
+          contactId: DEMO_CONTACT_ID,
+          recommendationId: part3DemoRecommendationPackage.recommendation.id,
+          outcomeType: "snoozed"
+        })
+      })
+    );
+    const body = await json<OutcomeCreateResponse>(response);
+
+    expect(response.status).toBe(201);
+    expect(body.outcome.outcomeType).toBe("snoozed");
+    expect(body.updatedRecommendation?.status).toBe("snoozed");
+    expect(buildRelationshipMoveInputs({ userId: DEMO_USER_ID, generatedAt })).toHaveLength(0);
+    expect(selectStoredDailyMoves({ userId: DEMO_USER_ID, generatedAt })).toHaveLength(0);
+  });
+
+  it("clears daily moves after they are marked not relevant", async () => {
+    saveDemoRelationship();
+
+    expect(selectStoredDailyMoves({ userId: DEMO_USER_ID, generatedAt })).toHaveLength(1);
+
+    const response = await postOutcome(
+      new Request("http://test/api/outcomes", {
+        method: "POST",
+        body: JSON.stringify({
+          userId: DEMO_USER_ID,
+          contactId: DEMO_CONTACT_ID,
+          recommendationId: part3DemoRecommendationPackage.recommendation.id,
+          outcomeType: "marked_not_relevant"
+        })
+      })
+    );
+    const body = await json<OutcomeCreateResponse>(response);
+
+    expect(response.status).toBe(201);
+    expect(body.outcome.outcomeType).toBe("marked_not_relevant");
+    expect(body.updatedRecommendation?.status).toBe("archived");
+    expect(buildRelationshipMoveInputs({ userId: DEMO_USER_ID, generatedAt })).toHaveLength(0);
     expect(selectStoredDailyMoves({ userId: DEMO_USER_ID, generatedAt })).toHaveLength(0);
   });
 });

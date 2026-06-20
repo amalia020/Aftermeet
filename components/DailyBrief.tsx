@@ -1,9 +1,45 @@
+"use client";
+
 import Link from "next/link";
-import { ArrowRight, CalendarClock, Radio, Search, ShieldAlert, TrendingDown } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { ArrowRight, CalendarClock, Check, Radio, Search, ShieldAlert, Snowflake, Timer, TrendingDown } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import type { DailyBriefViewModel } from "@/lib/frontend/viewModels";
+import type { OutcomeType } from "@/lib/types";
 
 export function DailyBrief({ brief }: { brief: DailyBriefViewModel }) {
+  const router = useRouter();
+  const [hiddenMoveIds, setHiddenMoveIds] = useState<Set<string>>(new Set());
+  const [busyMoveId, setBusyMoveId] = useState<string | null>(null);
+
+  const recordDeferral = async (
+    move: DailyBriefViewModel["moves"][number],
+    outcomeType: OutcomeType,
+    notes: string,
+  ) => {
+    if (!move.contactId || busyMoveId) return;
+    setBusyMoveId(move.id);
+    try {
+      const response = await fetch("/api/outcomes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: brief.userId,
+          contactId: move.contactId,
+          recommendationId: move.recommendationId,
+          outcomeType,
+          notes,
+        }),
+      });
+      if (!response.ok) throw new Error("Unable to record outcome.");
+      setHiddenMoveIds((current) => new Set(current).add(move.id));
+      router.refresh();
+    } finally {
+      setBusyMoveId(null);
+    }
+  };
+
   return (
     <section className="screen daily-brief">
       <div className="screen-kicker">Today&apos;s relationship brief</div>
@@ -34,7 +70,8 @@ export function DailyBrief({ brief }: { brief: DailyBriefViewModel }) {
       </div>
 
       <div className="move-stack">
-        {brief.moves.map((move) => {
+        {brief.moves.filter((move) => !hiddenMoveIds.has(move.id)).map((move) => {
+          const isBusy = busyMoveId === move.id;
           const content = (
             <>
               <Avatar initials={move.initials} tone={move.signal === "network" ? "signal" : "cool"} />
@@ -58,6 +95,40 @@ export function DailyBrief({ brief }: { brief: DailyBriefViewModel }) {
               <ArrowRight className="move-arrow" size={18} />
             </>
           );
+
+          if (move.canDefer && move.contactId) {
+            return (
+              <article className="move-card move-card-actionable" key={move.id}>
+                {content}
+                <div className="move-card-actions">
+                  {move.href ? (
+                    <Link className="secondary-action" href={move.href}>
+                      <Search size={16} />
+                      Details
+                    </Link>
+                  ) : null}
+                  <button
+                    className="secondary-action"
+                    disabled={isBusy}
+                    onClick={() => recordDeferral(move, "snoozed", "Waited from today's relationship brief.")}
+                    type="button"
+                  >
+                    {isBusy ? <Check size={16} /> : <Timer size={16} />}
+                    Wait
+                  </button>
+                  <button
+                    className="secondary-action"
+                    disabled={isBusy}
+                    onClick={() => recordDeferral(move, "snoozed", "Snoozed from today's relationship brief.")}
+                    type="button"
+                  >
+                    {isBusy ? <Check size={16} /> : <Snowflake size={16} />}
+                    Snooze
+                  </button>
+                </div>
+              </article>
+            );
+          }
 
           return move.href ? (
             <Link className="move-card" href={move.href} key={move.id}>
@@ -101,9 +172,9 @@ export function DailyBrief({ brief }: { brief: DailyBriefViewModel }) {
           <span>Mission gap</span>
         </div>
         <p>{brief.missionGap}</p>
-        <Link className="primary-action" href="/terminal">
+        <Link className="primary-action" href={brief.activeObjective ? "/terminal" : "/objective"}>
           <Search size={17} />
-          <span>Open radar</span>
+          <span>{brief.activeObjective ? "Open radar" : "Set mission"}</span>
         </Link>
       </article>
     </section>
