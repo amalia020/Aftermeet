@@ -5,7 +5,7 @@ export function swaggerHtml() {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>AfterMeet API Docs</title>
-    <link rel="stylesheet" href="/swagger-ui/swagger-ui.css" />
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css" />
     <style>
       body { margin: 0; background: #f7f7f4; }
       .topbar { display: none; }
@@ -27,8 +27,8 @@ export function swaggerHtml() {
         Loading Swagger UI. If it does not appear, open <a href="/api/openapi.json">/api/openapi.json</a>.
       </div>
     </div>
-    <script src="/swagger-ui/swagger-ui-bundle.js"></script>
-    <script src="/swagger-ui/swagger-ui-standalone-preset.js"></script>
+    <script src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js" crossorigin></script>
+    <script src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-standalone-preset.js" crossorigin></script>
     <script>
       window.ui = SwaggerUIBundle({
         url: "/api/openapi.json",

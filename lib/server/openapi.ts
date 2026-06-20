@@ -340,6 +340,30 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
             ...errorResponses()
           }
         }
+      },
+      "/api/workflows/full-flow": {
+        post: {
+          tags: ["Workflows"],
+          summary: "Run objective -> capture -> extraction -> enrichment -> recommendation in one JSON call",
+          description:
+            "Best Swagger smoke test for the whole intelligence layer. This avoids the SSE stream and returns the capture, extraction handoff, evidence bundle, recommendation package, draft, and stage events as JSON.",
+          requestBody: jsonRequest(ref("WorkflowFullFlowRequest"), {
+            userId: DEMO_USER_ID,
+            rawText: demoConversationText,
+            eventContext: "MEGATHON",
+            name: "Maya",
+            company: "Recursive",
+            role: "Founder",
+            query: "Recursive professional company context",
+            ensureObjective: true,
+            status: "new",
+            hoursSinceLastAction: 0
+          }),
+          responses: {
+            "200": jsonResponse(ref("WorkflowFullFlowResponse")),
+            ...errorResponses()
+          }
+        }
       }
     },
     components: {
@@ -756,6 +780,70 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
             webFallback: ref("WebFallbackResponse")
           },
           required: ["objective", "capture", "webFallback"]
+        },
+        WorkflowFullFlowRequest: {
+          allOf: [
+            ref("WorkflowCaptureEnrichRequest"),
+            {
+              type: "object",
+              properties: {
+                status: {
+                  type: "string",
+                  enum: [
+                    "new",
+                    "drafted",
+                    "sent",
+                    "reply",
+                    "booked",
+                    "archived"
+                  ]
+                },
+                hoursSinceLastAction: { type: "number" }
+              }
+            }
+          ]
+        },
+        WorkflowFullFlowResponse: {
+          type: "object",
+          properties: {
+            objective: {
+              type: "object",
+              properties: {
+                existed: { type: "boolean" },
+                created: { type: "boolean" },
+                objectiveId: stringSchema
+              },
+              required: ["existed", "created", "objectiveId"]
+            },
+            capture: ref("CaptureAcceptedResponse"),
+            extractionHandoff: {
+              type: "object",
+              description: "Part 1 -> Part 2 handoff object."
+            },
+            evidenceBundle: {
+              type: "object",
+              description: "Part 2 evidence bundle."
+            },
+            recommendationPackage: {
+              type: "object",
+              description: "Part 3 recommendation package, including draft when available."
+            },
+            events: {
+              type: "array",
+              items: {
+                type: "object",
+                description: "ProcessStageEvent emitted by the non-streaming workflow."
+              }
+            }
+          },
+          required: [
+            "objective",
+            "capture",
+            "extractionHandoff",
+            "evidenceBundle",
+            "recommendationPackage",
+            "events"
+          ]
         }
       }
     }

@@ -10,6 +10,8 @@ import { POST as postCalaEnrich } from "@/app/api/enrich/cala/route";
 import { POST as postWebFallback } from "@/app/api/enrich/web/route";
 import { POST as postCaptureEnrichWorkflow } from "@/app/api/workflows/capture-enrich/route";
 import { POST as postCaptureWebFallbackWorkflow } from "@/app/api/workflows/capture-web-fallback/route";
+import { POST as postFullFlowWorkflow } from "@/app/api/workflows/full-flow/route";
+import { GET as getOpenApi } from "@/app/api/openapi/route";
 import type {
   ActiveObjectiveResponse,
   CalaEnrichmentResponse,
@@ -19,6 +21,7 @@ import type {
   WebFallbackResponse,
   VoiceCaptureAcceptedResponse,
   WorkflowCaptureEnrichResponse,
+  WorkflowFullFlowResponse,
   WorkflowCaptureWebFallbackResponse
 } from "@/lib/types";
 
@@ -426,5 +429,40 @@ describe("process and enrichment routes", () => {
     expect(body.webFallback.claims.length).toBeGreaterThan(0);
 
     vi.unstubAllGlobals();
+  });
+
+  it("runs the full non-streaming workflow in one Swagger-friendly request", async () => {
+    const response = await postFullFlowWorkflow(
+      new Request("http://test/api/workflows/full-flow", {
+        method: "POST",
+        body: JSON.stringify({
+          userId: DEMO_USER_ID,
+          rawText: demoConversationText,
+          eventContext: "MEGATHON",
+          name: "Maya",
+          company: "Recursive",
+          role: "Founder",
+          query: "Recursive professional context",
+          ensureObjective: true
+        })
+      })
+    );
+
+    const body = await json<WorkflowFullFlowResponse>(response);
+    expect(response.status).toBe(200);
+    expect(body.capture.conversationId).toMatch(/^conv_/);
+    expect(body.extractionHandoff.contactCandidate.company).toBe("Recursive");
+    expect(body.evidenceBundle.evidenceFacts.length).toBeGreaterThan(0);
+    expect(body.recommendationPackage.recommendation.recommendedAction).toBeTruthy();
+    expect(body.events.at(-1)?.stage).toBe("handoff_ready");
+  });
+
+  it("lists workflow helpers in the OpenAPI document", async () => {
+    const response = await getOpenApi(new Request("http://test/api/openapi"));
+    const body = await json<{ paths: Record<string, unknown> }>(response);
+
+    expect(body.paths["/api/workflows/capture-enrich"]).toBeDefined();
+    expect(body.paths["/api/workflows/capture-web-fallback"]).toBeDefined();
+    expect(body.paths["/api/workflows/full-flow"]).toBeDefined();
   });
 });
