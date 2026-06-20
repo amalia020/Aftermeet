@@ -614,22 +614,108 @@ Use:
 * Next.js App Router or Vite + API server
 * Supabase/Postgres if possible
 * Claude API for extraction and drafting
-* Cala API for public entity context
-* Vapi for voice capture/transcription
+* Cala API for structured, verified public entity context
+* Gemini API (grounded with Google Search) for unstructured public context when Cala has no match
+* OpenAI Whisper (audio transcription API) for voice capture/transcription
 * Mollie payment link for WTP signal
 * Optional: embeddings via local/simple provider if time allows
 
 ## 7.2 Hard Rules
 
 * No API keys in frontend.
-* All Cala/Claude/Vapi calls go through server endpoints.
+* All Cala/Claude/Gemini/OpenAI calls go through server endpoints.
 * Do not scrape LinkedIn.
+* Web search is a query against a search API, never a scraper. Do not crawl, paginate, or harvest profiles.
+* Web search enrichment runs only as a fallback when Cala has no match, and only for contacts the user actually met.
+* Web search returns professional/public context only. Discard anything personal, sensitive, or non-professional.
+* Treat unstructured web facts as lower confidence than Cala-verified facts. They may inform scoring but are not draft-safe unless confidence clears threshold and ideally the user confirms.
+* Every web-derived fact must carry a source record with the citation URL. No citation, not usable.
 * Do not auto-send messages.
 * Do not enrich strangers the user did not meet.
 * Do not store sensitive personal data.
 * Do not generate drafts using low-confidence facts.
 * If entity confidence is low, ask user to confirm.
 * If no meaningful follow-up exists, recommend no action.
+* If neither Cala nor web search yields data, say "public context unavailable." Never invent.
+
+---
+
+## 7.3 Architecture Decision Records (ADRs)
+
+These ADRs are accepted and reflected throughout this document, so the spec is the
+single source of truth for the decisions behind the stack and pipeline.
+
+### ADR-001 — Run the pipeline synchronously with streamed stage updates
+
+**Status:** Accepted (applied in Phase 3 and the `/api/intelligence/process` route).
+
+**Context.** The pipeline has several external network hops (LLM extraction, Cala,
+the Gemini web fallback, LLM draft) plus local scoring. The product's magic moment is
+the visible processing cascade. Serverless functions have execution-time limits, so a
+request that blocks and returns only at the end risks both a timeout and a multi-second
+dead screen.
+
+**Decision.** One orchestrator route runs the pipeline and streams a stage event as each
+stage completes (HTTP streaming / SSE, or Supabase Realtime row updates). The UI advances
+the cascade from those events. Each external hop is wrapped in a timeout with a typed
+fallback; the deterministic scoring block runs in-process and never blocks. If a hop
+exceeds budget it falls back — LLM hops to saved fixtures, Cala and the web fallback to
+"unavailable" — rather than failing the request.
+
+**Alternatives considered.** Fire-and-forget + client polling (more moving parts, worse
+latency feel); message queue + background worker (over-engineered for a weekend MVP).
+
+**Consequences.** Real cascade UX with no queue infra; must keep model/token choices lean
+and set an adequate function `maxDuration` so extraction + enrich + draft stay within limits.
+
+### ADR-002 — Use OpenAI Whisper for voice transcription (not Vapi)
+
+**Status:** Accepted (applied across the stack, env vars, providers, and demo mode).
+
+**Context.** Voice capture is a single short dictated memo, transcribed once — batch, not
+live. Vapi is a real-time voice-agent platform (telephony, turn-taking, stacked STT/LLM/TTS)
+with per-minute orchestration cost, built for two-way calls.
+
+**Decision.** Use OpenAI's audio transcription API (Whisper / `gpt-4o-transcribe` family)
+for the server-side voice path. It is a single file-in / text-out call, batch-native, and
+auto-detects language with strong Dutch/multilingual handling — useful for mixed Dutch/English
+event conversations. Text input stays the primary capture path; voice stays cut-line #2.
+
+**Alternatives considered.** Deepgram — comparable quality, marginally cheaper, better at
+real-time streaming; revisit only if live transcription during capture is ever needed. Browser
+Web Speech API — zero-cost demo option, but support varies, so not the dependable server path.
+
+**Consequences.** One new vendor key (`OPENAI_API_KEY`); no streaming/websocket complexity;
+transcription model is configurable.
+
+### ADR-003 — Scope Cala to company/fund context, web fallback for person gaps
+
+**Status:** Accepted (reflected in Phase 5 and Phase 5b).
+
+**Context.** Cala's strength is verified company/financial/regulatory facts with provenance.
+It is not a professional-profile provider for arbitrary private persons.
+
+**Decision.** Use Cala for company / investor / fund context and feed its provenance into
+source records. For person-level gaps, rely on the Gemini web fallback (Phase 5b) and
+user-confirmed / business-card data. Never synthesize person facts.
+
+**Consequences.** Reinforces the privacy-first thesis and keeps source attribution clean;
+person resolution leans on the fallback and user confirmation rather than Cala.
+
+### ADR-004 — Single tenant for the demo; defer RLS to post-MVP
+
+**Status:** Accepted (applied in Phase 0).
+
+**Context.** The spec uses `SUPABASE_SERVICE_ROLE_KEY` server-side, which bypasses
+row-level security. The privacy-first positioning implies real multi-tenant isolation, but
+the hackathon demo is effectively single-user.
+
+**Decision.** Seed one demo user and run server logic under the service role for the MVP.
+Document that production requires Supabase Auth + RLS policies keying every table on
+`user_id` before any real users.
+
+**Consequences.** Nothing blocks the build now; a known, named gap between the demo and a
+shippable privacy-first product.
 
 ---
 
@@ -652,6 +738,7 @@ Use this structure.
     /intelligence/process/route.ts
     /intelligence/recommend/route.ts
     /enrich/cala/route.ts
+    /enrich/web/route.ts
     /draft/generate/route.ts
     /outcomes/route.ts
     /demo/reset/route.ts
@@ -667,6 +754,7 @@ Use this structure.
   /intelligence
     extraction.ts
     entityResolution.ts
+    enrichment.ts
     sourceConfidence.ts
     factConfidence.ts
     clustering.ts
@@ -682,7 +770,8 @@ Use this structure.
   /providers
     claude.ts
     cala.ts
-    vapi.ts
+    gemini.ts
+    whisper.ts
     mollie.ts
   /db
     client.ts
@@ -724,19 +813,20 @@ Use this structure.
 2. Conversation capture
 3. LLM extraction into conversation atoms
 4. Entity resolution
-5. Cala public context retrieval
-6. Source register creation
-7. Fact confidence scoring
-8. User clustering
-9. Contact clustering
-10. Multi-route opportunity scoring
-11. Recipient burden scoring
-12. Warmth decay scoring
-13. Action policy decision
-14. Decision trace generation
-15. Draft generation using safe facts only
-16. Outcome tracking
-17. Feedback learning
+5. Cala public context retrieval (structured, verified)
+6. Web search fallback enrichment via Gemini when Cala has no match (unstructured, cited)
+7. Source register creation
+8. Fact confidence scoring
+9. User clustering
+10. Contact clustering
+11. Multi-route opportunity scoring
+12. Recipient burden scoring
+13. Warmth decay scoring
+14. Action policy decision
+15. Decision trace generation
+16. Draft generation using safe facts only
+17. Outcome tracking
+18. Feedback learning
 ```
 
 ---
@@ -766,7 +856,8 @@ Set up the app, environment, routing, and project conventions.
 ```text
 ANTHROPIC_API_KEY=
 CALA_API_KEY=
-VAPI_API_KEY=
+GEMINI_API_KEY=
+OPENAI_API_KEY=
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 MOLLIE_PAYMENT_LINK=
@@ -779,6 +870,7 @@ MOLLIE_PAYMENT_LINK=
 * Server can read env vars.
 * `/api/health` returns OK.
 * TypeScript compiles.
+* A single demo user is seeded; multi-tenant RLS is deferred to post-MVP (ADR-004).
 
 ---
 
@@ -876,7 +968,7 @@ export interface ConversationAtoms {
 
 ```ts
 export interface PublicEntityContext {
-  provider: "cala" | "manual" | "web";
+  provider: "cala" | "gemini" | "web" | "manual";
   providerEntityId?: string;
   entityType: "person" | "company" | "fund" | "unknown";
   canonicalName?: string;
@@ -1009,7 +1101,8 @@ POST /api/capture/card
 
 * User can submit text capture.
 * Capture creates conversation record.
-* Capture triggers intelligence pipeline or queues for processing.
+* Capture invokes the `/api/intelligence/process` orchestrator, which runs the pipeline synchronously and streams a stage event per step to the UI cascade (ADR-001).
+* Each external hop is timeout-wrapped with a typed fallback (LLM to fixtures, Cala/web to "unavailable"); the deterministic scoring block never blocks (ADR-001).
 * Voice and card can fallback to text in demo mode.
 
 ---
@@ -1099,7 +1192,11 @@ Return JSON only.
 
 ## Goal
 
-Use Cala as public entity context provider.
+Use Cala as the primary public entity context provider for structured, verified
+facts, scoped to company / investor / fund context (its strength). Cala is always
+tried first. When it has no match — including most person-level lookups — the Gemini
+web search fallback (Phase 5b) supplies unstructured context, and person facts
+otherwise rely on user confirmation. Never synthesize person facts (ADR-003).
 
 ## Files
 
@@ -1173,9 +1270,131 @@ Do not call Cala for every low-priority contact.
 
 * Cala API key stays server-side.
 * Cala errors do not break app.
-* Missing Cala result leads to “public context unavailable,” not hallucination.
+* Missing or low-confidence Cala result triggers the web search fallback (Phase 5b); if that also fails, leads to "public context unavailable," not hallucination.
 * Cala context is stored with source records.
 * Entity match remains confirmable by user.
+
+---
+
+# Phase 5b — Gemini + Web Search Fallback Enrichment
+
+## Goal
+
+When Cala has no match (or only a low-confidence match) for a contact that
+warrants enrichment, retrieve unstructured public professional context using
+Gemini grounded with Google Search. This is the fallback layer. Cala is always
+tried first; this never runs before Cala.
+
+## Files
+
+```text
+/lib/providers/gemini.ts
+/lib/intelligence/enrichment.ts
+/app/api/enrich/web/route.ts
+```
+
+## Enrichment Cascade
+
+`enrichment.ts` owns the order so the rest of the pipeline calls one function:
+
+```text
+1. Try Cala (structured, verified).
+2. If Cala returns no match OR a match below the medium threshold,
+   AND the contact warrants enrichment (see triggers below),
+   call Gemini grounded with Google Search for unstructured context.
+3. Convert each grounded claim into an evidence fact + source record (cited URL).
+4. If neither yields data, return "public context unavailable." Never invent.
+```
+
+## When To Use The Web Fallback
+
+Run the web search fallback only when ALL of these hold:
+
+* Cala returned no entity match, or a match below the medium threshold.
+* The contact is high priority, ambiguous-but-important, or the user explicitly asked for deeper context.
+* The conversation lacks the facts needed to score or draft well.
+
+Do not run web search for every low-priority contact. Do not run it before Cala.
+
+## Gemini Function
+
+```ts
+export async function geminiWebContext(input: {
+  name?: string;
+  company?: string;
+  role?: string;
+  query: string;
+}): Promise<WebContextResult>
+```
+
+Implementation calls the Gemini API with the Google Search grounding tool
+enabled, so the model answers from live web results and returns grounding
+citations (URLs) alongside the text.
+
+## Output
+
+```ts
+export interface WebContextResult {
+  summary: string;            // unstructured professional context
+  claims: {
+    text: string;             // a single extracted professional fact
+    sourceUrl: string;        // grounding citation
+    sourceType: SourceType;   // inferred from the citation domain
+  }[];
+  retrievedAt: string;
+  available: boolean;         // false => "public context unavailable"
+}
+```
+
+## Gemini Prompt
+
+System:
+
+```text
+You retrieve public, professional context about a person or company the user met at an event. Use only the grounded web results. Return concise professional facts, each with its source URL. Do not include personal, sensitive, or non-professional information. Do not guess. If the results do not clearly match the person/company, return available=false. Return JSON only.
+```
+
+User:
+
+```text
+Person/company:
+{{name}} — {{role}} at {{company}}
+
+Question:
+{{query}}
+
+Return:
+- summary
+- claims (each with text + sourceUrl)
+- available
+Return JSON only.
+```
+
+## Turning Web Claims Into Evidence
+
+Each returned claim becomes an `evidence_fact` backed by its own `source_record`:
+
+* `source_record.source_url` = the grounding citation.
+* `source_record.source_type` is inferred from the citation domain:
+  company_website, fund_website, official_press, reputable_news, personal_website,
+  else search_snippet.
+* `sourceConfidence` is computed from `SOURCE_PRIORS` for that type (Phase 6).
+* Because extraction from unstructured text and entity match are fuzzier than
+  Cala, `factConfidence` (Phase 8) naturally lands lower. Web facts therefore
+  default to NOT `safe_for_draft`. They may inform scoring and be shown to the
+  user, but only cross the draft threshold if `factConfidence >= 0.75` and ideally
+  the user confirms.
+
+## Acceptance Criteria
+
+* Gemini key stays server-side.
+* Web search runs only as a fallback after Cala, only for met contacts.
+* Every web fact has a source record with a citation URL.
+* No citation, the fact is discarded.
+* Personal, sensitive, or non-professional content is filtered out.
+* Web facts are lower confidence than Cala facts and are not draft-safe by default.
+* If Gemini returns `available=false`, system says "public context unavailable."
+* Gemini errors do not break the app; the pipeline continues with what it has.
 
 ---
 
@@ -2148,6 +2367,8 @@ outcomeBoost =
 * No bulk people discovery.
 * No sensitive personal data.
 * No automatic outreach.
+* Web search is fallback-only (used when Cala has no match) and queries a search API, never a scraper. No crawling, pagination, or profile harvesting.
+* Web facts are professional/public only, stored with citation source records, lower confidence, and user-removable.
 * Store source records.
 * Allow deletion.
 * Allow user to edit/remove facts.
@@ -2285,6 +2506,7 @@ Ensure the demo cannot fail.
 
 * Saved example contacts.
 * Saved example Cala response.
+* Saved example Gemini/web search response.
 * Saved extraction response.
 * Saved decision trace.
 * Toggle demo mode in env.
@@ -2302,8 +2524,9 @@ Demo data
 ## Acceptance Criteria
 
 * App works without Cala key.
+* App works without Gemini key (skips web fallback).
 * App works without Claude key using saved examples.
-* App works without Vapi using text input.
+* App works without OpenAI/Whisper using text input.
 * Live mode preferred if keys available.
 
 ---
@@ -2420,10 +2643,11 @@ If behind, cut in this order:
 
 1. Card scan
 2. Voice capture
-3. Cala live enrichment
-4. Opportunity terminal
-5. Feedback learning
-6. Advanced clustering
+3. Web search fallback enrichment
+4. Cala live enrichment
+5. Opportunity terminal
+6. Feedback learning
+7. Advanced clustering
 
 Never cut:
 
