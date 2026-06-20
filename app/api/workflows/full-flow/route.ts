@@ -48,6 +48,7 @@ export async function POST(request: Request) {
     const body = await parseJsonBody<WorkflowFullFlowRequest>(request);
     const userId = requiredString(body.userId, "userId");
     const rawText = requiredString(body.rawText, "rawText");
+    const captureType = body.captureType ?? "text";
 
     const ensureObjective = body.ensureObjective !== false;
     let objective = await getActiveObjective(userId);
@@ -78,8 +79,10 @@ export async function POST(request: Request) {
       requestId: capture.requestId,
       userId,
       conversationId: capture.conversationId,
-      captureType: "text",
+      captureType,
       rawText,
+      transcript: captureType === "voice" ? rawText : undefined,
+      cardText: captureType === "card" ? rawText : undefined,
       eventContext: body.eventContext ?? objective.eventContext ?? undefined,
     });
 

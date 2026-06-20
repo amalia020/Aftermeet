@@ -3,6 +3,7 @@ export * from "./common";
 export * from "./contact";
 export * from "./context";
 export * from "./conversation";
+export * from "./frontend";
 export * from "./handoffs";
 export * from "./outcome";
 export * from "./recommendation";

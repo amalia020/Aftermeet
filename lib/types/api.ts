@@ -188,6 +188,7 @@ export interface WorkflowCaptureWebFallbackResponse {
 }
 
 export interface WorkflowFullFlowRequest extends WorkflowCaptureEnrichRequest {
+  captureType?: CaptureType;
   status?: ContactStatus;
   hoursSinceLastAction?: number;
 }
