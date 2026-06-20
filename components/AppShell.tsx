@@ -1,6 +1,7 @@
 import Link from "next/link";
+import Image from "next/image";
+import appIcon from "@/logo/Icon.png";
 import {
-  BadgeCheck,
   Blocks,
   ClipboardCheck,
   Radio,
@@ -34,9 +35,7 @@ export function AppShell({ active, children }: AppShellProps) {
     <div className="app-shell">
       <header className="topbar">
         <Link aria-label="Aftermeet home" className="brand-lockup" href="/">
-          <span className="user-orb">
-            <BadgeCheck size={15} />
-          </span>
+          <Image alt="" className="brand-icon" priority src={appIcon} />
           <span>Aftermeet</span>
         </Link>
         <button aria-label="Search relationships" className="icon-button">

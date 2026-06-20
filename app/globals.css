@@ -70,12 +70,20 @@ a {
   gap: 14px;
 }
 
+.brand-icon {
+  border: 1px solid #2e3854;
+  border-radius: 12px;
+  height: 42px;
+  object-fit: cover;
+  width: 42px;
+}
+
 .icon-button,
 .round-tool,
 .draft-title button,
 .secondary-action,
 .ghost-action,
-.relationship-card button,
+.draft-controls button,
 .outcome-option,
 .skip-button {
   align-items: center;
@@ -392,125 +400,154 @@ h2 {
   color: var(--violet);
 }
 
-.radar-stage {
-  aspect-ratio: 1;
-  background:
-    linear-gradient(90deg, transparent 49.7%, rgba(127, 220, 255, 0.16) 50%, transparent 50.3%),
-    linear-gradient(0deg, transparent 49.7%, rgba(127, 220, 255, 0.16) 50%, transparent 50.3%),
-    radial-gradient(circle, rgba(127, 220, 255, 0.08), transparent 68%);
+.radar-console {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.45fr) minmax(220px, 0.75fr);
+  margin-top: 34px;
+}
+
+.matrix-panel {
   border: 1px solid var(--line);
-  margin-top: 30px;
-  overflow: hidden;
+  min-height: 420px;
+  padding: 30px 26px 36px 42px;
   position: relative;
 }
 
-.radar-ring {
-  border: 1px solid rgba(189, 181, 255, 0.16);
-  border-radius: 50%;
-  left: 50%;
+.matrix-grid {
+  background:
+    linear-gradient(90deg, transparent calc(50% - 0.5px), rgba(244, 243, 251, 0.22) 50%, transparent calc(50% + 0.5px)),
+    linear-gradient(0deg, transparent calc(50% - 0.5px), rgba(244, 243, 251, 0.22) 50%, transparent calc(50% + 0.5px)),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 25%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 25%);
+  height: 100%;
+  min-height: 354px;
+  position: relative;
+}
+
+.axis-label {
+  color: var(--dim);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
   position: absolute;
+  text-transform: uppercase;
+}
+
+.axis-y {
+  left: 14px;
   top: 50%;
-  transform: translate(-50%, -50%);
+  transform: rotate(-90deg) translateX(-50%);
+  transform-origin: left top;
 }
 
-.ring-outer {
-  height: 86%;
-  width: 86%;
+.axis-x {
+  bottom: 13px;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
-.ring-middle {
-  height: 58%;
-  width: 58%;
+.quadrant {
+  color: rgba(244, 243, 251, 0.34);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  position: absolute;
+  text-transform: uppercase;
 }
 
-.ring-inner {
-  height: 30%;
-  width: 30%;
+.quadrant-watch {
+  left: 16px;
+  top: 14px;
 }
 
-.radar-center,
-.radar-node {
+.quadrant-act {
+  right: 16px;
+  top: 14px;
+}
+
+.quadrant-park {
+  bottom: 14px;
+  left: 16px;
+}
+
+.quadrant-develop {
+  bottom: 14px;
+  right: 16px;
+}
+
+.matrix-node {
   align-items: center;
-  background: rgba(21, 23, 34, 0.88);
+  background: rgba(15, 17, 27, 0.95);
   border: 1px solid var(--line);
-  display: flex;
-  position: absolute;
-}
-
-.radar-center {
-  border-color: rgba(127, 220, 255, 0.45);
-  flex-direction: column;
-  gap: 5px;
-  left: 50%;
-  padding: 18px;
-  top: 50%;
-  transform: translate(-50%, -50%);
-}
-
-.radar-center span {
-  color: var(--muted);
-  font-size: 0.8rem;
-}
-
-.radar-node {
+  display: inline-flex;
   gap: 8px;
-  padding: 7px 10px 7px 7px;
-  transform: translate(-50%, -50%);
+  max-width: 142px;
+  padding: 8px 10px;
+  position: absolute;
+  transform: translate(-50%, 50%);
 }
 
-.radar-node span {
-  font-size: 0.78rem;
+.matrix-node strong {
+  color: var(--ink);
+  font-size: 0.72rem;
+  min-width: 24px;
+}
+
+.matrix-node span {
+  color: var(--muted);
+  font-size: 0.72rem;
   font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.radar-node-action {
+.matrix-node-action {
   border-color: var(--cyan);
+  box-shadow: 0 0 0 1px rgba(127, 220, 255, 0.16);
 }
 
-.radar-node-cooling {
+.matrix-node-cooling {
   border-color: var(--coral);
 }
 
-.radar-node-gap {
+.matrix-node-gap {
   border-color: var(--amber);
 }
 
-.radar-legend {
-  display: flex;
-  flex-wrap: wrap;
+.signal-ledger {
+  align-content: start;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--line);
+  display: grid;
   gap: 10px;
-  margin-top: 18px;
+  padding: 20px;
 }
 
-.radar-legend span {
+.ledger-row {
   align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr auto;
+  min-height: 58px;
+  padding: 9px 0;
+}
+
+.ledger-row:last-child {
+  border-bottom: 0;
+}
+
+.ledger-row span {
   color: var(--muted);
-  display: flex;
-  font-size: 0.84rem;
-  gap: 7px;
+  display: block;
+  font-size: 0.82rem;
+  margin-top: 5px;
 }
 
-.dot {
-  border-radius: 50%;
-  display: inline-block;
-  height: 9px;
-  width: 9px;
-}
-
-.dot-action {
-  background: var(--cyan);
-}
-
-.dot-warm {
-  background: var(--mint);
-}
-
-.dot-cooling {
-  background: var(--coral);
-}
-
-.dot-waiting {
-  background: var(--dim);
+.ledger-row svg {
+  color: var(--dim);
 }
 
 .bridge-list {
@@ -818,17 +855,26 @@ h2 {
   margin-top: 20px;
 }
 
-.relationship-card button {
+.draft-controls {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 0.58fr;
+  margin-top: 20px;
+}
+
+.draft-controls button {
+  gap: 8px;
+  font-weight: 800;
+  min-height: 42px;
+}
+
+.draft-controls button:first-child {
   background: var(--coral);
   border: 0;
   color: #210c19;
-  font-weight: 800;
-  margin-top: 20px;
-  min-height: 42px;
-  width: 100%;
 }
 
-.relationship-card button:disabled {
+.draft-controls button:disabled {
   background: rgba(255, 255, 255, 0.05);
   color: var(--dim);
   cursor: not-allowed;
@@ -993,5 +1039,17 @@ h2 {
 
   .bridge-card span:last-child {
     text-align: left;
+  }
+
+  .radar-console {
+    grid-template-columns: 1fr;
+  }
+
+  .matrix-panel {
+    min-height: 360px;
+  }
+
+  .matrix-node {
+    max-width: 108px;
   }
 }

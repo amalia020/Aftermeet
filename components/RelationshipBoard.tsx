@@ -1,4 +1,4 @@
-import { Flame, Hourglass, Moon, Sparkle, Zap } from "lucide-react";
+import { Copy, Edit3, Flame, Hourglass, Moon, Sparkle, Zap } from "lucide-react";
 import type { BoardSection, RelationshipBoardViewModel } from "@/lib/frontend/mockData";
 
 const sectionIcons: Record<BoardSection["tone"], React.ComponentType<{ size?: number }>> = {
@@ -43,7 +43,16 @@ export function RelationshipBoard({ board }: { board: RelationshipBoardViewModel
                       <span className="mini-pill">{card.label}</span>
                     </div>
                     <p>{card.note}</p>
-                    <button disabled={card.disabled}>{card.action}</button>
+                    <div className="draft-controls">
+                      <button disabled={card.disabled}>
+                        <Copy size={15} />
+                        Copy draft
+                      </button>
+                      <button disabled={card.disabled}>
+                        <Edit3 size={15} />
+                        Edit
+                      </button>
+                    </div>
                   </article>
                 ))}
               </div>

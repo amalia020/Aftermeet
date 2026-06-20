@@ -1,13 +1,5 @@
-import { GitBranch, RadioTower } from "lucide-react";
-import { Avatar } from "@/components/Avatar";
-import type { MissionRadarViewModel, RadarNode } from "@/lib/frontend/mockData";
-
-function nodeTone(state: RadarNode["state"]) {
-  if (state === "action") return "signal";
-  if (state === "cooling") return "warm";
-  if (state === "waiting") return "muted";
-  return "cool";
-}
+import { ArrowUpRight, GitBranch, SlidersHorizontal } from "lucide-react";
+import type { MissionRadarViewModel } from "@/lib/frontend/mockData";
 
 export function MissionRadar({ radar }: { radar: MissionRadarViewModel }) {
   return (
@@ -15,35 +7,45 @@ export function MissionRadar({ radar }: { radar: MissionRadarViewModel }) {
       <div className="screen-kicker">Mission radar</div>
       <h1>Recruit Core Talent</h1>
       <p className="screen-intro">
-        Relationships positioned by mission relevance, timing, and next useful move.
+        Calibrated by mission fit and timing pressure. High-right means action earns attention today.
       </p>
 
-      <div className="radar-stage">
-        <div className="radar-ring ring-outer" />
-        <div className="radar-ring ring-middle" />
-        <div className="radar-ring ring-inner" />
-        <div className="radar-center">
-          <RadioTower size={20} />
-          <strong>Mission</strong>
-          <span>Senior infra</span>
-        </div>
-        {radar.nodes.map((node) => (
-          <div
-            className={`radar-node radar-node-${node.state}`}
-            key={node.id}
-            style={{ left: `${node.x}%`, top: `${node.y}%` }}
-          >
-            <Avatar initials={node.initials} tone={nodeTone(node.state)} size="sm" />
-            <span>{node.name}</span>
+      <div className="radar-console">
+        <div className="matrix-panel">
+          <div className="axis-label axis-y">Timing pressure</div>
+          <div className="axis-label axis-x">Mission fit</div>
+          <div className="matrix-grid">
+            <span className="quadrant quadrant-watch">Watch</span>
+            <span className="quadrant quadrant-act">Act</span>
+            <span className="quadrant quadrant-park">Park</span>
+            <span className="quadrant quadrant-develop">Develop</span>
+            {radar.nodes.map((node) => (
+              <div
+                className={`matrix-node matrix-node-${node.state}`}
+                key={node.id}
+                style={{ left: `${node.x}%`, bottom: `${node.y}%` }}
+              >
+                <strong>{node.initials}</strong>
+                <span>{node.name}</span>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-
-      <div className="radar-legend">
-        <span><i className="dot dot-action" /> Best move</span>
-        <span><i className="dot dot-warm" /> Warm</span>
-        <span><i className="dot dot-cooling" /> Cooling</span>
-        <span><i className="dot dot-waiting" /> Wait</span>
+        </div>
+        <aside className="signal-ledger">
+          <div className="section-label">
+            <SlidersHorizontal size={17} />
+            <span>Signal ledger</span>
+          </div>
+          {radar.nodes.map((node) => (
+            <article className="ledger-row" key={node.id}>
+              <div>
+                <strong>{node.name}</strong>
+                <span>{node.note}</span>
+              </div>
+              <ArrowUpRight size={16} />
+            </article>
+          ))}
+        </aside>
       </div>
 
       <div className="bridge-list">
