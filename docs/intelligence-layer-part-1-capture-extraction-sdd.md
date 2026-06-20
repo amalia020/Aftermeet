@@ -1,3 +1,9 @@
+---
+noteId: "2b2641106c8a11f1bc4eed32644d11d4"
+tags: []
+
+---
+
 # AfterMeet Intelligence Layer Part 1 - Capture and Extraction SDD
 
 ## 1. Introduction

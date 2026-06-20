@@ -1,3 +1,9 @@
+---
+noteId: "2b261a006c8a11f1bc4eed32644d11d4"
+tags: []
+
+---
+
 # AfterMeet Intelligence Layer Part 4 - Frontend Experience and Visualization SDD
 
 ## 1. Introduction

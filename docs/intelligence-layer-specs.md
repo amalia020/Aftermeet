@@ -1,3 +1,9 @@
+---
+noteId: "2b272b716c8a11f1bc4eed32644d11d4"
+tags: []
+
+---
+
 # AfterMeet Intelligence Layer — Spec-Driven Development Plan
 
 ## 0. Project Summary
