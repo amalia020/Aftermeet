@@ -1,219 +1,436 @@
+/**
+ * Assembled demo fixtures (Phase 25). Builds the full handoff chain
+ * (ExtractionHandoff -> EvidenceBundle -> RecommendationPackage).
+ *
+ * These are hand-authored so the demo is bulletproof even if every live
+ * provider is down. The shapes match lib/types exactly.
+ */
+
 import type {
   CalaEntityCandidate,
   CalaEntityDetail,
   ContactCandidate,
-  ConversationAtomsExtractionResult,
+  EvidenceBundle,
   ExtractionProviderResult,
+  ExtractionHandoff,
+  ProcessStageEvent,
+  RecommendationPackage,
   User,
   UserObjectiveProfile,
-  WebContextResult
+  WebContextResult,
 } from "@/lib/types";
+import type { Conversation } from "@/lib/types";
+import {
+  DEMO_NOW,
+  part1DemoExtraction,
+  part1DemoObjective,
+  part1DemoRawText,
+  part1DemoTranscript,
+  part2DemoCalaCandidates,
+  part2DemoCalaFacts,
+  part2DemoWebResult,
+  part3DemoDraft,
+} from "./savedExamples";
 
-export const DEMO_USER_ID = "user_demo_aftermeet";
-export const DEMO_OBJECTIVE_ID = "obj_demo_megathon";
-export const DEMO_REQUEST_ID = "req_demo_maya_recursive";
-export const DEMO_CONVERSATION_ID = "conv_demo_maya_recursive";
-export const DEMO_CONTACT_ID = "contact_demo_maya_recursive";
+const REQUEST_ID = "req_demo";
+const CONVERSATION_ID = "conv_demo";
+const CONTACT_ID = "contact_demo";
+const RECOMMENDATION_ID = "rec_demo";
+
+export const DEMO_USER_ID = "user_demo";
+export const DEMO_OBJECTIVE_ID = part1DemoObjective.id;
+export const DEMO_REQUEST_ID = REQUEST_ID;
+export const DEMO_CONVERSATION_ID = CONVERSATION_ID;
+export const DEMO_CONTACT_ID = CONTACT_ID;
 
 export const demoUser: User = {
   id: DEMO_USER_ID,
-  name: "AfterMeet Demo User",
-  email: "demo@aftermeet.local",
-  createdAt: "2026-06-20T10:00:00.000Z"
+  name: "Demo Founder",
+  email: "demo@aftermeet.app",
+  createdAt: "2026-06-20T09:00:00.000Z",
 };
 
-export const demoObjective: UserObjectiveProfile = {
-  id: DEMO_OBJECTIVE_ID,
-  userId: DEMO_USER_ID,
-  role: "founder",
-  activeGoals: ["find_users", "find_design_partners", "collect_wtp"],
-  primaryGoal: "find_users",
-  secondaryGoals: ["find_design_partners", "collect_wtp"],
-  eventContext: "MEGATHON",
-  companyName: "AfterMeet",
-  companyStage: "prototype",
-  productDescription:
-    "A goal-conditioned relationship intelligence layer for high-density networking events.",
-  targetCustomer: "Event-heavy founders, operators, and community builders",
-  currentTraction: "Hackathon demo with fixture-backed evidence",
-  fundraisingStatus: "not fundraising",
-  hiringNeeds: [],
-  attentionBudgetToday: 5,
-  preferredTone: "warm",
-  constraints: [
-    "Do not auto-send messages",
-    "Only enrich contacts the user actually met",
-    "Prefer concise follow-up recommendations"
-  ],
-  createdAt: "2026-06-20T10:00:00.000Z",
-  updatedAt: "2026-06-20T10:00:00.000Z"
-};
-
-export const demoConversationText =
-  "Maya from Recursive just closed Series A, scaling the team fast, doing the European conference circuit. She liked AfterMeet and said she wants to try it at her next event.";
-
-export const demoTranscript =
-  "Met Maya from Recursive. They just closed Series A, are scaling the team fast, and are doing the European conference circuit. She liked AfterMeet and wants to try it at her next event.";
-
-export const demoContactCandidate: ContactCandidate = {
-  name: "Maya Linden",
-  role: "Founder / operator",
-  company: "Recursive",
-  email: null,
-  phone: null,
-  website: "https://recursive.example",
-  linkedinUrl: null
-};
-
-export const demoExtractionResult: ConversationAtomsExtractionResult = {
-  contactCandidate: demoContactCandidate,
-  atoms: {
-    facts: [
-      {
-        text: "Maya is associated with Recursive.",
-        type: "contact_company",
-        confidence: 0.84,
-        isProfessional: true,
-        isSensitive: false
-      },
-      {
-        text: "Recursive recently closed a Series A.",
-        type: "funding",
-        confidence: 0.74,
-        isProfessional: true,
-        isSensitive: false
-      },
-      {
-        text: "Recursive is scaling its team quickly.",
-        type: "growth",
-        confidence: 0.72,
-        isProfessional: true,
-        isSensitive: false
-      },
-      {
-        text: "Maya is active on the European conference circuit.",
-        type: "event_activity",
-        confidence: 0.72,
-        isProfessional: true,
-        isSensitive: false
-      },
-      {
-        text: "Maya expressed interest in trying AfterMeet at her next event.",
-        type: "product_interest",
-        confidence: 0.9,
-        isProfessional: true,
-        isSensitive: false
-      }
-    ],
-    asks: [
-      {
-        text: "Maya wants to try AfterMeet at her next event.",
-        askSize: 0.34,
-        explicitness: 0.82
-      }
-    ],
-    offers: [
-      {
-        text: "AfterMeet can provide early access for Maya's next event.",
-        mutualValue: 0.86
-      }
-    ],
-    commitments: [
-      {
-        text: "Follow up with Maya about early access.",
-        owner: "user",
-        dueAt: null,
-        explicitness: 0.78
-      }
-    ],
-    uncertainties: [
-      "Maya's last name was not provided in the note; fixture uses a demo surname.",
-      "The exact date and source of the Series A should be verified before using it externally."
-    ],
-    sentiment: "warm interest",
-    extractionConfidence: 0.82
-  },
-  opportunityHints: [
-    {
-      route: "user",
-      score: 0.9,
-      evidence: [
-        "Explicit product interest",
-        "Event-heavy profile",
-        "Low recipient burden early access offer"
-      ]
-    },
-    {
-      route: "partner",
-      score: 0.48,
-      evidence: ["European conference circuit could create distribution relevance"]
-    },
-    {
-      route: "hire",
-      score: 0.22,
-      evidence: ["Recursive is scaling its team, but no hiring ask was discussed"]
-    }
-  ]
-};
-
+export const demoObjective: UserObjectiveProfile = part1DemoObjective;
+export const demoConversationText = part1DemoRawText;
+export const demoTranscript = part1DemoTranscript;
+export const demoContactCandidate: ContactCandidate =
+  part1DemoExtraction.contactCandidate;
+export const demoExtractionResult = part1DemoExtraction;
 export const demoExtractionProviderResult: ExtractionProviderResult = {
   provider: "fixture",
   model: "aftermeet-demo-extraction",
-  extractionConfidence: demoExtractionResult.atoms.extractionConfidence,
-  warnings: ["Demo fixture used because live Gemini extraction is unavailable or unnecessary."]
+  extractionConfidence: part1DemoExtraction.atoms.extractionConfidence,
+  warnings: ["Demo fixture used because live Gemini extraction is unavailable."],
 };
 
-export const demoCalaCandidate: CalaEntityCandidate = {
-  providerEntityId: "cala_demo_recursive",
-  name: "Recursive",
-  entityType: "company",
-  company: "Recursive",
-  role: "Company",
-  domain: "recursive.example",
-  confidence: 0.78
-};
-
+export const demoCalaCandidate: CalaEntityCandidate = part2DemoCalaCandidates[0];
 export const demoCalaDetail: CalaEntityDetail = {
   providerEntityId: demoCalaCandidate.providerEntityId,
-  entityType: "company",
-  canonicalName: "Recursive",
+  entityType: demoCalaCandidate.entityType,
+  canonicalName: demoCalaCandidate.company ?? demoCalaCandidate.name,
   rawContext: {
-    summary: "Recursive is a demo company fixture used for AfterMeet evidence flows.",
-    facts: [
-      "Recursive is represented as a Series A company in the demo context.",
-      "Recursive has event-heavy go-to-market signals in the demo context.",
-      "Recursive is scaling its team in the demo context."
-    ],
-    sourceName: "Cala demo knowledge fixture"
+    facts: part2DemoCalaFacts,
+    summary: "Recursive demo knowledge fixture.",
   },
-  retrievedAt: "2026-06-20T10:05:00.000Z"
+  retrievedAt: DEMO_NOW,
 };
-
-export const demoWebContext: WebContextResult = {
-  summary:
-    "Public fixture context suggests Recursive is relevant to event-heavy professional workflows.",
-  claims: [
-    {
-      text: "Recursive describes event participation as part of its growth motion.",
-      sourceUrl: "https://recursive.example/events",
-      sourceType: "company_website"
-    },
-    {
-      text: "Recursive announced a Series A financing in the fixture press item.",
-      sourceUrl: "https://recursive.example/news/series-a",
-      sourceType: "official_press"
-    },
-    {
-      text: "Recursive is hiring across product and go-to-market roles in the fixture context.",
-      sourceUrl: "https://recursive.example/careers",
-      sourceType: "company_website"
-    }
-  ],
-  retrievedAt: "2026-06-20T10:06:00.000Z",
-  available: true
-};
+export const demoWebContext: WebContextResult = part2DemoWebResult;
 
 export function isDemoMayaConversation(rawText: string): boolean {
   const normalized = rawText.toLowerCase();
   return normalized.includes("maya") && normalized.includes("recursive");
 }
+
+export const part1DemoConversation: Conversation = {
+  id: CONVERSATION_ID,
+  userId: "user_demo",
+  contactId: CONTACT_ID,
+  rawText: part1DemoRawText,
+  captureType: "text",
+  transcript: null,
+  eventContext: "MEGATHON",
+  capturedAt: DEMO_NOW,
+  processingStatus: "extracted",
+};
+
+export const part1DemoHandoff: ExtractionHandoff = {
+  requestId: REQUEST_ID,
+  userId: "user_demo",
+  objective: part1DemoObjective,
+  conversation: part1DemoConversation,
+  contactCandidate: part1DemoExtraction.contactCandidate,
+  atoms: part1DemoExtraction.atoms,
+  opportunityHints: part1DemoExtraction.opportunityHints,
+  extraction: {
+    provider: "fixture",
+    model: "demo",
+    extractionConfidence: part1DemoExtraction.atoms.extractionConfidence,
+    warnings: [],
+  },
+  sourceRecord: {
+    provider: "conversation",
+    sourceType: "user_voice_note",
+    retrievedAt: DEMO_NOW,
+    sourceConfidence: 0.72,
+  },
+};
+
+export const part2DemoEvidenceBundle: EvidenceBundle = {
+  requestId: REQUEST_ID,
+  userId: "user_demo",
+  conversationId: CONVERSATION_ID,
+  contactId: CONTACT_ID,
+  contactCandidate: part1DemoExtraction.contactCandidate,
+  publicContext: [
+    {
+      id: "ctx_demo_cala",
+      contactId: CONTACT_ID,
+      provider: "cala",
+      providerEntityId: "cala_recursive",
+      entityType: "company",
+      canonicalName: "Recursive",
+      rawContext: {
+        sector: "applied-ai",
+        funding: "Series A",
+      },
+      retrievedAt: DEMO_NOW,
+      confidence: 0.78,
+    },
+  ],
+  sourceRecords: [
+    {
+      id: "src_demo_voice",
+      contactId: CONTACT_ID,
+      provider: "conversation",
+      sourceType: "user_voice_note",
+      sourceName: "Captured conversation",
+      sourceUrl: null,
+      retrievedAt: DEMO_NOW,
+      sourceConfidence: 0.72,
+    },
+    {
+      id: "src_demo_cala",
+      contactId: CONTACT_ID,
+      provider: "cala",
+      sourceType: "cala_verified_fact",
+      sourceName: "Cala verified company context",
+      sourceUrl: null,
+      retrievedAt: DEMO_NOW,
+      sourceConfidence: 0.82,
+    },
+    {
+      id: "src_demo_web",
+      contactId: CONTACT_ID,
+      provider: "web",
+      sourceType: "reputable_news",
+      sourceName: "Press coverage",
+      sourceUrl: part2DemoWebResult.claims[0]?.sourceUrl ?? null,
+      retrievedAt: DEMO_NOW,
+      sourceConfidence: 0.8,
+    },
+  ],
+  evidenceFacts: [
+    {
+      id: "fact_demo_interest",
+      contactId: CONTACT_ID,
+      conversationId: CONVERSATION_ID,
+      fact: "Maya wants to try AfterMeet at her next event.",
+      factType: "intent",
+      sourceRecordId: "src_demo_voice",
+      sourceType: "user_voice_note",
+      entityMatchConfidence: 0.9,
+      sourceConfidence: 0.72,
+      extractionConfidence: 0.72,
+      freshness: 1,
+      contradictionPenalty: 0,
+      factConfidence: 0.82,
+      safeForDraft: true,
+      isProfessional: true,
+      isSensitive: false,
+      createdAt: DEMO_NOW,
+    },
+    {
+      id: "fact_demo_seriesa",
+      contactId: CONTACT_ID,
+      conversationId: CONVERSATION_ID,
+      fact: "Recursive recently closed a Series A round.",
+      factType: "company_funding",
+      sourceRecordId: "src_demo_cala",
+      sourceType: "cala_verified_fact",
+      entityMatchConfidence: 0.78,
+      sourceConfidence: 0.82,
+      extractionConfidence: 0.85,
+      freshness: 1,
+      contradictionPenalty: 0,
+      factConfidence: 0.78,
+      safeForDraft: true,
+      isProfessional: true,
+      isSensitive: false,
+      createdAt: DEMO_NOW,
+    },
+    {
+      id: "fact_demo_circuit",
+      contactId: CONTACT_ID,
+      conversationId: CONVERSATION_ID,
+      fact: "Recursive is expanding across European tech events.",
+      factType: "behavior",
+      sourceRecordId: "src_demo_web",
+      sourceType: "reputable_news",
+      entityMatchConfidence: 0.6,
+      sourceConfidence: 0.8,
+      extractionConfidence: 0.6,
+      freshness: 1,
+      contradictionPenalty: 0,
+      factConfidence: 0.55,
+      safeForDraft: false,
+      isProfessional: true,
+      isSensitive: false,
+      createdAt: DEMO_NOW,
+    },
+  ],
+  entityResolution: {
+    capturedName: "Maya",
+    capturedCompany: "Recursive",
+    capturedRole: "Founder / CEO",
+    candidateName: "Recursive",
+    candidateCompany: "Recursive",
+    candidateDomain: "recursive.ai",
+    score: 0.74,
+    label: "medium",
+    needsUserConfirmation: false,
+    reasons: [
+      "Company name matches a verified Cala entity.",
+      "Person last name not captured; company-level match only.",
+    ],
+  },
+  enrichment: {
+    attempted: true,
+    calaAttempted: true,
+    webFallbackAttempted: true,
+    status: "available",
+    warnings: [],
+  },
+};
+
+const demoRoutes: RecommendationPackage["routes"] = [
+  {
+    id: "route_demo_user",
+    contactId: CONTACT_ID,
+    conversationId: CONVERSATION_ID,
+    type: "user",
+    score: 0.86,
+    evidence: [
+      "Explicit product interest",
+      "Event-heavy founder/operator profile (high ICP fit)",
+      "Warm, fresh conversation",
+    ],
+    why: [
+      "Explicit product interest",
+      "High ICP fit",
+      "Low recipient burden",
+      "Warm conversation still fresh",
+    ],
+    whyNot: [],
+  },
+  {
+    id: "route_demo_partner",
+    contactId: CONTACT_ID,
+    conversationId: CONVERSATION_ID,
+    type: "partner",
+    score: 0.38,
+    evidence: ["Founder peer"],
+    why: ["Possible cross-promotion later"],
+    whyNot: ["No concrete partner pilot discussed, so do not pitch partnership yet"],
+  },
+  {
+    id: "route_demo_raise",
+    contactId: CONTACT_ID,
+    conversationId: CONVERSATION_ID,
+    type: "raise",
+    score: 0.08,
+    evidence: [],
+    why: [],
+    whyNot: ["Not an investor conversation, so do not send a deck"],
+  },
+];
+
+export const part3DemoRecommendationPackage: RecommendationPackage = {
+  recommendation: {
+    id: RECOMMENDATION_ID,
+    userId: "user_demo",
+    contactId: CONTACT_ID,
+    conversationId: CONVERSATION_ID,
+    recommendedAction: "SEND_EARLY_ACCESS",
+    priorityScore: 0.84,
+    urgencyScore: 0.55,
+    recipientBurden: 0.22,
+    confidence: 0.8,
+    status: "pending",
+    explanation: {
+      inputSummary:
+        "Met Maya (Recursive) at MEGATHON. Series A, scaling, event circuit, wants to try AfterMeet.",
+      extractedFacts: [
+        "Maya wants to try AfterMeet at her next event.",
+        "Recursive recently closed a Series A round.",
+        "Maya is doing the European conference circuit.",
+      ],
+      retrievedContext: [
+        "Cala: Recursive is an applied-AI company; Series A confirmed.",
+        "Web: European go-to-market activity.",
+      ],
+      routeScores: demoRoutes,
+      chosenRoute: demoRoutes[0],
+      chosenAction: "SEND_EARLY_ACCESS",
+      whyThisAction: [
+        "Explicit product interest",
+        "High ICP fit",
+        "Event-heavy founder/operator profile",
+        "Low recipient burden",
+        "Warm conversation still fresh",
+      ],
+      whyNotOtherActions: [
+        "Not an investor conversation, so do not send deck",
+        "No concrete partner pilot discussed, so do not pitch partnership yet",
+        "No mentor ask needed yet",
+      ],
+      confidenceBreakdown: {
+        entityMatch: 0.74,
+        sourceConfidence: 0.78,
+        factConfidence: 0.8,
+        userGoalFit: 0.9,
+        contactPovFit: 0.85,
+        recipientBurden: 0.22,
+        finalConfidence: 0.8,
+      },
+      safeFactsUsed: [
+        "Maya wants to try AfterMeet at her next event.",
+        "Recursive recently closed a Series A round.",
+      ],
+      warnings: [],
+    },
+    createdAt: DEMO_NOW,
+  },
+  routes: demoRoutes,
+  decisionTrace: {
+    inputSummary:
+      "Met Maya (Recursive) at MEGATHON. Series A, scaling, event circuit, wants to try AfterMeet.",
+    extractedFacts: [
+      "Maya wants to try AfterMeet at her next event.",
+      "Recursive recently closed a Series A round.",
+      "Maya is doing the European conference circuit.",
+    ],
+    retrievedContext: [
+      "Cala: Recursive is an applied-AI company; Series A confirmed.",
+      "Web: European go-to-market activity.",
+    ],
+    routeScores: demoRoutes,
+    chosenRoute: demoRoutes[0],
+    chosenAction: "SEND_EARLY_ACCESS",
+    whyThisAction: [
+      "Explicit product interest",
+      "High ICP fit",
+      "Event-heavy founder/operator profile",
+      "Low recipient burden",
+      "Warm conversation still fresh",
+    ],
+    whyNotOtherActions: [
+      "Not an investor conversation, so do not send deck",
+      "No concrete partner pilot discussed, so do not pitch partnership yet",
+      "No mentor ask needed yet",
+    ],
+    confidenceBreakdown: {
+      entityMatch: 0.74,
+      sourceConfidence: 0.78,
+      factConfidence: 0.8,
+      userGoalFit: 0.9,
+      contactPovFit: 0.85,
+      recipientBurden: 0.22,
+      finalConfidence: 0.8,
+    },
+    safeFactsUsed: [
+      "Maya wants to try AfterMeet at her next event.",
+      "Recursive recently closed a Series A round.",
+    ],
+    warnings: [],
+  },
+  draft: {
+    id: "draft_demo",
+    recommendationId: RECOMMENDATION_ID,
+    contactId: CONTACT_ID,
+    channel: part3DemoDraft.channel,
+    tone: part3DemoDraft.tone,
+    subject: part3DemoDraft.subject,
+    body: part3DemoDraft.body,
+    factsUsed: part3DemoDraft.facts_used,
+    status: "drafted",
+    riskNote: part3DemoDraft.risk_note,
+    createdAt: DEMO_NOW,
+    sentAt: null,
+  },
+  boardCard: {
+    contactId: CONTACT_ID,
+    recommendationId: RECOMMENDATION_ID,
+    contactName: "Maya",
+    company: "Recursive",
+    status: "new",
+    recommendedAction: "SEND_EARLY_ACCESS",
+    priorityScore: 0.84,
+    urgencyScore: 0.55,
+    warmthScore: 0.78,
+    warning: false,
+    updatedAt: DEMO_NOW,
+  },
+  warnings: [],
+};
+
+export const demoProcessingEvents: ProcessStageEvent[] = [
+  { requestId: REQUEST_ID, conversationId: CONVERSATION_ID, stage: "capturing", status: "completed", timestamp: DEMO_NOW },
+  { requestId: REQUEST_ID, conversationId: CONVERSATION_ID, stage: "extracting", status: "completed", timestamp: DEMO_NOW },
+  { requestId: REQUEST_ID, conversationId: CONVERSATION_ID, stage: "persisting_atoms", status: "completed", timestamp: DEMO_NOW },
+  { requestId: REQUEST_ID, conversationId: CONVERSATION_ID, stage: "resolving_entity", status: "completed", timestamp: DEMO_NOW },
+  { requestId: REQUEST_ID, conversationId: CONVERSATION_ID, stage: "retrieving_context", status: "completed", timestamp: DEMO_NOW },
+  { requestId: REQUEST_ID, conversationId: CONVERSATION_ID, stage: "scoring_routes", status: "completed", timestamp: DEMO_NOW },
+  { requestId: REQUEST_ID, conversationId: CONVERSATION_ID, stage: "choosing_action", status: "completed", timestamp: DEMO_NOW },
+  { requestId: REQUEST_ID, conversationId: CONVERSATION_ID, stage: "generating_draft", status: "completed", timestamp: DEMO_NOW },
+  { requestId: REQUEST_ID, conversationId: CONVERSATION_ID, stage: "handoff_ready", status: "completed", timestamp: DEMO_NOW },
+];

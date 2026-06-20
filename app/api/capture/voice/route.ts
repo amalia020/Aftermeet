@@ -46,7 +46,9 @@ export async function POST(request: Request) {
         requestId,
         conversationId: conversation.id,
         status: "captured",
-        streamUrl: "/api/intelligence/process",
+        streamUrl: `/api/intelligence/process?conversationId=${encodeURIComponent(
+          conversation.id
+        )}&requestId=${encodeURIComponent(requestId)}`,
         transcriptStatus: transcription.transcript ? "completed" : "fallback_required"
       },
       202

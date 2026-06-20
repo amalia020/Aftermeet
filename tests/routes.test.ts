@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative, sep } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { DEMO_USER_ID, demoConversationText, demoObjective } from "@/lib/demo/fixtures";
 import { json, sseEvents } from "./helpers";
@@ -10,16 +12,50 @@ import { POST as postCalaEnrich } from "@/app/api/enrich/cala/route";
 import { POST as postWebFallback } from "@/app/api/enrich/web/route";
 import { POST as postCaptureEnrichWorkflow } from "@/app/api/workflows/capture-enrich/route";
 import { POST as postCaptureWebFallbackWorkflow } from "@/app/api/workflows/capture-web-fallback/route";
+import { POST as postFullFlowWorkflow } from "@/app/api/workflows/full-flow/route";
+import { GET as getOpenApi } from "@/app/api/openapi/route";
 import type {
   ActiveObjectiveResponse,
   CalaEnrichmentResponse,
   CaptureAcceptedResponse,
   CardCaptureAcceptedResponse,
   ErrorResponse,
+  WebFallbackResponse,
   VoiceCaptureAcceptedResponse,
   WorkflowCaptureEnrichResponse,
+  WorkflowFullFlowResponse,
   WorkflowCaptureWebFallbackResponse
 } from "@/lib/types";
+
+const ROUTE_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"] as const;
+const DOCS_INFRASTRUCTURE_PATHS = new Set([
+  "/api/docs",
+  "/api/openapi",
+  "/api/openapi.json",
+]);
+
+function routeFiles(dir: string): string[] {
+  return readdirSync(dir).flatMap((entry) => {
+    const fullPath = join(dir, entry);
+    if (statSync(fullPath).isDirectory()) return routeFiles(fullPath);
+    return entry === "route.ts" ? [fullPath] : [];
+  });
+}
+
+function implementedApiOperations() {
+  return routeFiles("app/api")
+    .map((file) => {
+      const path = `/${relative("app", file).split(sep).slice(0, -1).join("/")}`;
+      const source = readFileSync(file, "utf8");
+      const methods = ROUTE_METHODS
+        .filter((method) =>
+          new RegExp(`export\\s+(?:(?:async\\s+)?function|const)\\s+${method}\\b`).test(source),
+        )
+        .map((method) => method.toLowerCase());
+      return { path, methods };
+    })
+    .filter((route) => !DOCS_INFRASTRUCTURE_PATHS.has(route.path));
+}
 
 describe("objective and capture routes", () => {
   it("saves and retrieves the active objective", async () => {
@@ -288,7 +324,7 @@ describe("process and enrichment routes", () => {
       })
     );
 
-    const body = await json(response);
+    const body = await json<WebFallbackResponse>(response);
     expect(response.status).toBe(200);
     expect(body.available).toBe(true);
     expect(body.claims).toHaveLength(2);
@@ -425,5 +461,47 @@ describe("process and enrichment routes", () => {
     expect(body.webFallback.claims.length).toBeGreaterThan(0);
 
     vi.unstubAllGlobals();
+  });
+
+  it("runs the full non-streaming workflow in one Swagger-friendly request", async () => {
+    const response = await postFullFlowWorkflow(
+      new Request("http://test/api/workflows/full-flow", {
+        method: "POST",
+        body: JSON.stringify({
+          userId: DEMO_USER_ID,
+          rawText: demoConversationText,
+          eventContext: "MEGATHON",
+          name: "Maya",
+          company: "Recursive",
+          role: "Founder",
+          query: "Recursive professional context",
+          ensureObjective: true
+        })
+      })
+    );
+
+    const body = await json<WorkflowFullFlowResponse>(response);
+    expect(response.status).toBe(200);
+    expect(body.capture.conversationId).toMatch(/^conv_/);
+    expect(body.extractionHandoff.contactCandidate.company).toBe("Recursive");
+    expect(body.evidenceBundle.evidenceFacts.length).toBeGreaterThan(0);
+    expect(body.recommendationPackage.recommendation.recommendedAction).toBeTruthy();
+    expect(body.events.at(-1)?.stage).toBe("handoff_ready");
+  });
+
+  it("lists every implemented API operation in the OpenAPI document", async () => {
+    const response = await getOpenApi(new Request("http://test/api/openapi"));
+    const body = await json<{
+      paths: Record<string, Record<string, unknown>>;
+    }>(response);
+
+    const missing = implementedApiOperations().flatMap((route) => {
+      const documentedMethods = Object.keys(body.paths[route.path] ?? {});
+      return route.methods
+        .filter((method) => !documentedMethods.includes(method))
+        .map((method) => `${method.toUpperCase()} ${route.path}`);
+    });
+
+    expect(missing).toEqual([]);
   });
 });

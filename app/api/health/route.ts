@@ -1,11 +1,14 @@
-import { jsonResponse } from "@/lib/server/http";
+import { NextResponse } from "next/server";
+import { runtimeConfig } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-export function GET() {
-  return jsonResponse({
-    ok: true,
-    service: "aftermeet-intelligence-layer",
-    timestamp: new Date().toISOString()
+export async function GET() {
+  return NextResponse.json({
+    status: "ok",
+    service: "aftermeet",
+    demoMode: runtimeConfig.demoMode,
+    providers: runtimeConfig.providerAvailability,
+    timestamp: new Date().toISOString(),
   });
 }

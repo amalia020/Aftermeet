@@ -1,4 +1,10 @@
-import type { CaptureType, Id, ISODateTime, ProcessStageEvent } from "./common";
+import type {
+  CaptureType,
+  ContactStatus,
+  Id,
+  ISODateTime,
+  ProcessStageEvent,
+} from "./common";
 import type { ContactCandidate } from "./contact";
 import type { ConversationAtoms } from "./conversation";
 import type {
@@ -7,7 +13,7 @@ import type {
   SourceRecord,
   WebContextClaim,
 } from "./context";
-import type { EvidenceBundle, RecommendationPackage } from "./handoffs";
+import type { EvidenceBundle, ExtractionHandoff, RecommendationPackage } from "./handoffs";
 import type { ActionRecommendation, Draft, OpportunityRoute } from "./recommendation";
 import type { Outcome, OutcomeType, TractionSummary } from "./outcome";
 import type { UserObjectiveProfile, UserObjectiveProfileInput } from "./user";
@@ -179,6 +185,24 @@ export interface WorkflowCaptureWebFallbackResponse {
   };
   capture: CaptureAcceptedResponse;
   webFallback: WebFallbackResponse;
+}
+
+export interface WorkflowFullFlowRequest extends WorkflowCaptureEnrichRequest {
+  status?: ContactStatus;
+  hoursSinceLastAction?: number;
+}
+
+export interface WorkflowFullFlowResponse {
+  objective: {
+    existed: boolean;
+    created: boolean;
+    objectiveId: Id;
+  };
+  capture: CaptureAcceptedResponse;
+  extractionHandoff: ExtractionHandoff;
+  evidenceBundle: EvidenceBundle;
+  recommendationPackage: RecommendationPackage;
+  events: ProcessStageEvent[];
 }
 
 export interface RecommendRequest {

@@ -22,6 +22,17 @@ export interface DetailedExtractionResult extends ConversationAtomsExtractionRes
   providerResult: ExtractionProviderResult;
 }
 
+export interface ExtractConversationAtomsInput {
+  rawText: string;
+  userObjective: UserObjectiveProfile;
+  now?: Date;
+}
+
+export interface ExtractConversationAtomsOutput {
+  result: ConversationAtomsExtractionResult;
+  extraction: ExtractionProviderResult;
+}
+
 const SYSTEM_PROMPT =
   "You extract structured professional conversation information. Return JSON only. Do not invent facts. If uncertain, put details in uncertainties. Never output sensitive personal data unless explicitly present and professionally relevant. Do not write a follow-up message yet.";
 
@@ -223,6 +234,36 @@ export async function extractConversationAtomsDetailed(input: {
   rawText: string;
   userObjective: UserObjectiveProfile;
 }): Promise<DetailedExtractionResult> {
+  if (input.rawText.trim().length === 0) {
+    return {
+      contactCandidate: {
+        name: null,
+        role: null,
+        company: null,
+        email: null,
+        phone: null,
+        website: null,
+        linkedinUrl: null
+      },
+      atoms: {
+        facts: [],
+        asks: [],
+        offers: [],
+        commitments: [],
+        uncertainties: ["No conversation text was provided to extract from."],
+        sentiment: null,
+        extractionConfidence: 0
+      },
+      opportunityHints: [],
+      providerResult: {
+        provider: "fixture",
+        model: "demo",
+        extractionConfidence: 0,
+        warnings: ["extraction: empty input, using fixture"]
+      }
+    };
+  }
+
   if (isDemoMayaConversation(input.rawText)) {
     return {
       ...demoExtractionResult,
@@ -259,21 +300,23 @@ export async function extractConversationAtomsDetailed(input: {
     ...fallback,
     providerResult: {
       provider: "fixture",
-      model: "aftermeet-heuristic-extraction",
+      model: "demo",
       extractionConfidence: fallback.atoms.extractionConfidence,
       warnings: warnings.length ? warnings : ["Using heuristic extraction fixture."]
     }
   };
 }
 
-export async function extractConversationAtoms(input: {
-  rawText: string;
-  userObjective: UserObjectiveProfile;
-}): Promise<ConversationAtomsExtractionResult> {
+export async function extractConversationAtoms(
+  input: ExtractConversationAtomsInput
+): Promise<ExtractConversationAtomsOutput> {
   const detailed = await extractConversationAtomsDetailed(input);
   return {
-    contactCandidate: detailed.contactCandidate,
-    atoms: detailed.atoms,
-    opportunityHints: detailed.opportunityHints
+    result: {
+      contactCandidate: detailed.contactCandidate,
+      atoms: detailed.atoms,
+      opportunityHints: detailed.opportunityHints
+    },
+    extraction: detailed.providerResult
   };
 }

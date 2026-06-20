@@ -48,6 +48,21 @@ function jsonResponse(schema: JsonValue, description = "OK", example?: JsonValue
   };
 }
 
+function sseResponse(description = "SSE stream of process stage events") {
+  return {
+    description,
+    content: {
+      "text/event-stream": {
+        schema: {
+          type: "string",
+          example:
+            'data: {"stage":"capturing","status":"started","timestamp":"..."}\n\n'
+        }
+      }
+    }
+  };
+}
+
 function errorResponses() {
   return {
     "400": jsonResponse(ref("ErrorResponse"), "Validation error"),
@@ -77,6 +92,10 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
       { name: "Capture", description: "Conversation capture inputs" },
       { name: "Intelligence", description: "Pipeline processing stream" },
       { name: "Enrichment", description: "Cala and web fallback enrichment" },
+      { name: "Recommendations", description: "Decision engine and draft generation" },
+      { name: "Outcomes", description: "Outcome tracking and traction summaries" },
+      { name: "Diagnostics", description: "Provider and demo diagnostics" },
+      { name: "Demo", description: "Demo store utilities" },
       {
         name: "Workflows",
         description: "Single-call orchestration for objective, capture, and enrichment"
@@ -88,18 +107,30 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
           tags: ["Health"],
           summary: "Check service health",
           responses: {
-            "200": jsonResponse(
-              {
-                type: "object",
-                properties: {
-                  ok: { type: "boolean" },
-                  service: stringSchema,
-                  timestamp: stringSchema
-                },
-                required: ["ok", "service", "timestamp"]
-              },
-              "Service is healthy"
-            )
+            "200": jsonResponse(ref("HealthResponse"), "Service is healthy")
+          }
+        }
+      },
+      "/api/demo/reset": {
+        post: {
+          tags: ["Demo"],
+          summary: "Reset the in-memory demo store",
+          description:
+            "Wipes and re-seeds the local demo store so Swagger smoke tests can be rerun from a clean state.",
+          responses: {
+            "200": jsonResponse(ref("OkResponse"), "Demo store reset")
+          }
+        }
+      },
+      "/api/diagnostics/providers": {
+        get: {
+          tags: ["Diagnostics"],
+          summary: "Probe configured external providers",
+          description:
+            "Calls tiny live probes for Cala and Gemini, reports OpenAI Whisper configuration, and checks the Mollie payment link configuration.",
+          responses: {
+            "200": jsonResponse(ref("ProviderDiagnosticsResponse")),
+            ...errorResponses()
           }
         }
       },
@@ -224,6 +255,32 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
         }
       },
       "/api/intelligence/process": {
+        get: {
+          tags: ["Intelligence"],
+          summary: "Stream processing events for an existing conversation",
+          description:
+            "GET form used by capture streamUrl. Requires conversationId and returns an SSE stream of ProcessStageEvent objects.",
+          parameters: [
+            {
+              name: "conversationId",
+              in: "query",
+              required: true,
+              schema: stringSchema,
+              example: "conv_replace_me"
+            },
+            {
+              name: "requestId",
+              in: "query",
+              required: false,
+              schema: stringSchema,
+              example: "req_replace_me"
+            }
+          ],
+          responses: {
+            "200": sseResponse(),
+            ...errorResponses()
+          }
+        },
         post: {
           tags: ["Intelligence"],
           summary: "Process a captured conversation",
@@ -236,18 +293,7 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
             captureType: "text"
           }),
           responses: {
-            "200": {
-              description: "SSE stream of process stage events",
-              content: {
-                "text/event-stream": {
-                  schema: {
-                    type: "string",
-                    example:
-                      'data: {"stage":"capturing","status":"started","timestamp":"..."}\n\n'
-                  }
-                }
-              }
-            },
+            "200": sseResponse(),
             ...errorResponses()
           }
         }
@@ -288,6 +334,70 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
           }),
           responses: {
             "200": jsonResponse(ref("WebFallbackResponse")),
+            ...errorResponses()
+          }
+        }
+      },
+      "/api/intelligence/recommend": {
+        post: {
+          tags: ["Recommendations"],
+          summary: "Run the decision engine for an evidence bundle",
+          description:
+            "Returns a RecommendationPackage. If no evidenceBundle is supplied, the demo evidence bundle is used so the endpoint remains Swagger-testable.",
+          requestBody: jsonRequest(ref("RecommendRequest"), {
+            userId: DEMO_USER_ID,
+            conversationId: "conv_replace_me",
+            status: "new",
+            hoursSinceLastAction: 0
+          }),
+          responses: {
+            "200": jsonResponse(ref("RecommendationPackage")),
+            ...errorResponses()
+          }
+        }
+      },
+      "/api/draft/generate": {
+        post: {
+          tags: ["Recommendations"],
+          summary: "Generate an editable draft for an existing recommendation",
+          description:
+            "Loads a recommendation, applies the draft gate, and returns a draft. It never auto-sends.",
+          requestBody: jsonRequest(ref("DraftGenerateRequest"), {
+            userId: DEMO_USER_ID,
+            recommendationId: "rec_replace_me",
+            tone: "warm"
+          }),
+          responses: {
+            "200": jsonResponse(ref("DraftGenerateResponse")),
+            "403": jsonResponse(ref("ErrorResponse"), "Draft is not allowed for this action"),
+            "404": jsonResponse(ref("ErrorResponse"), "Recommendation not found"),
+            ...errorResponses()
+          }
+        }
+      },
+      "/api/outcomes": {
+        get: {
+          tags: ["Outcomes"],
+          summary: "Get the current demo traction summary",
+          responses: {
+            "200": jsonResponse(ref("TractionSummary")),
+            ...errorResponses()
+          }
+        },
+        post: {
+          tags: ["Outcomes"],
+          summary: "Record a manual outcome and update traction",
+          requestBody: jsonRequest(ref("OutcomeCreateRequest"), {
+            userId: DEMO_USER_ID,
+            contactId: "contact_replace_me",
+            recommendationId: "rec_replace_me",
+            outcomeType: "reply",
+            notes: "They replied and asked for a demo.",
+            value: 1
+          }),
+          responses: {
+            "201": jsonResponse(ref("OutcomeCreateResponse"), "Outcome recorded"),
+            "404": jsonResponse(ref("ErrorResponse"), "Contact not found"),
             ...errorResponses()
           }
         }
@@ -340,6 +450,30 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
             ...errorResponses()
           }
         }
+      },
+      "/api/workflows/full-flow": {
+        post: {
+          tags: ["Workflows"],
+          summary: "Run objective -> capture -> extraction -> enrichment -> recommendation in one JSON call",
+          description:
+            "Best Swagger smoke test for the whole intelligence layer. This avoids the SSE stream and returns the capture, extraction handoff, evidence bundle, recommendation package, draft, and stage events as JSON.",
+          requestBody: jsonRequest(ref("WorkflowFullFlowRequest"), {
+            userId: DEMO_USER_ID,
+            rawText: demoConversationText,
+            eventContext: "MEGATHON",
+            name: "Maya",
+            company: "Recursive",
+            role: "Founder",
+            query: "Recursive professional company context",
+            ensureObjective: true,
+            status: "new",
+            hoursSinceLastAction: 0
+          }),
+          responses: {
+            "200": jsonResponse(ref("WorkflowFullFlowResponse")),
+            ...errorResponses()
+          }
+        }
       }
     },
     components: {
@@ -353,6 +487,64 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
             requestId: stringSchema
           },
           required: ["error", "message"]
+        },
+        OkResponse: {
+          type: "object",
+          properties: {
+            ok: { type: "boolean" }
+          },
+          required: ["ok"]
+        },
+        HealthResponse: {
+          type: "object",
+          properties: {
+            status: { type: "string", enum: ["ok"] },
+            service: stringSchema,
+            demoMode: { type: "boolean" },
+            providers: {
+              type: "object",
+              properties: {
+                cala: { type: "boolean" },
+                gemini: { type: "boolean" },
+                whisper: { type: "boolean" },
+                openai: { type: "boolean" },
+                mollie: { type: "boolean" }
+              },
+              required: ["cala", "gemini", "whisper", "openai", "mollie"]
+            },
+            timestamp: stringSchema
+          },
+          required: ["status", "service", "demoMode", "providers", "timestamp"]
+        },
+        ProviderProbeResult: {
+          type: "object",
+          properties: {
+            provider: stringSchema,
+            configured: { type: "boolean" },
+            mode: { type: "string", enum: ["live", "fallback", "skipped"] },
+            ok: { type: "boolean" },
+            detail: stringSchema,
+            warnings: { type: "array", items: stringSchema },
+            sample: {}
+          },
+          required: ["provider", "configured", "mode", "ok", "detail"]
+        },
+        ProviderDiagnosticsResponse: {
+          type: "object",
+          properties: {
+            summary: {
+              type: "object",
+              properties: {
+                live: { type: "integer" },
+                total: { type: "integer" },
+                allConfiguredLive: { type: "boolean" }
+              },
+              required: ["live", "total", "allConfiguredLive"]
+            },
+            results: { type: "array", items: ref("ProviderProbeResult") },
+            timestamp: stringSchema
+          },
+          required: ["summary", "results", "timestamp"]
         },
         UserObjectiveProfile: {
           type: "object",
@@ -642,6 +834,211 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
           },
           required: ["available", "summary", "claims", "sourceRecords", "warnings"]
         },
+        RecommendRequest: {
+          type: "object",
+          properties: {
+            userId: stringSchema,
+            conversationId: stringSchema,
+            contactId: stringSchema,
+            evidenceBundle: {
+              type: "object",
+              description: "Optional Part 2 EvidenceBundle. Demo evidence is used when omitted."
+            },
+            objective: ref("UserObjectiveProfile"),
+            status: {
+              type: "string",
+              enum: ["new", "drafted", "sent", "reply", "booked", "archived"]
+            },
+            hoursSinceLastAction: { type: "number" }
+          },
+          required: ["userId"]
+        },
+        ActionRecommendation: {
+          type: "object",
+          properties: {
+            id: stringSchema,
+            userId: stringSchema,
+            contactId: stringSchema,
+            conversationId: stringSchema,
+            recommendedAction: stringSchema,
+            priorityScore: scoreSchema,
+            urgencyScore: scoreSchema,
+            recipientBurden: scoreSchema,
+            confidence: scoreSchema,
+            status: {
+              type: "string",
+              enum: ["pending", "accepted", "sent", "snoozed", "archived", "overridden"]
+            },
+            explanation: {
+              type: "object",
+              description: "DecisionTrace explaining route scores, chosen action, and safe facts."
+            },
+            createdAt: stringSchema
+          },
+          required: [
+            "id",
+            "userId",
+            "contactId",
+            "conversationId",
+            "recommendedAction",
+            "priorityScore",
+            "urgencyScore",
+            "recipientBurden",
+            "confidence",
+            "status",
+            "explanation",
+            "createdAt"
+          ]
+        },
+        RecommendationPackage: {
+          type: "object",
+          properties: {
+            recommendation: ref("ActionRecommendation"),
+            decisionTrace: {
+              type: "object",
+              description: "DecisionTrace used to explain why this action was selected."
+            },
+            routeScores: {
+              type: "array",
+              items: {
+                type: "object",
+                description: "OpportunityRoute scored by the decision engine."
+              }
+            },
+            draft: {
+              oneOf: [ref("Draft"), { type: "null" }]
+            },
+            boardCard: {
+              type: "object",
+              description: "FollowUpBoardCard for clients that render queues."
+            },
+            warnings: { type: "array", items: stringSchema }
+          },
+          required: ["recommendation", "decisionTrace", "routeScores", "boardCard", "warnings"]
+        },
+        DraftGenerateRequest: {
+          type: "object",
+          properties: {
+            userId: stringSchema,
+            recommendationId: stringSchema,
+            tone: {
+              type: "string",
+              enum: ["direct", "warm", "formal", "casual", "concise"]
+            }
+          },
+          required: ["recommendationId"]
+        },
+        Draft: {
+          type: "object",
+          properties: {
+            id: stringSchema,
+            recommendationId: stringSchema,
+            contactId: stringSchema,
+            channel: { type: "string", enum: ["email", "linkedin", "sms", "manual"] },
+            tone: nullableStringSchema,
+            subject: nullableStringSchema,
+            body: stringSchema,
+            factsUsed: { type: "array", items: stringSchema },
+            status: { type: "string", enum: ["drafted", "edited", "sent", "discarded"] },
+            riskNote: nullableStringSchema,
+            createdAt: stringSchema,
+            sentAt: nullableStringSchema
+          },
+          required: [
+            "id",
+            "recommendationId",
+            "contactId",
+            "channel",
+            "body",
+            "factsUsed",
+            "status",
+            "createdAt"
+          ]
+        },
+        DraftGenerateResponse: {
+          type: "object",
+          properties: {
+            draft: ref("Draft"),
+            factsUsed: { type: "array", items: stringSchema },
+            riskNote: nullableStringSchema
+          },
+          required: ["draft", "factsUsed"]
+        },
+        OutcomeType: {
+          type: "string",
+          enum: [
+            "sent",
+            "reply",
+            "booked",
+            "paid",
+            "wtp",
+            "ignored",
+            "snoozed",
+            "marked_not_relevant",
+            "manual_override"
+          ]
+        },
+        Outcome: {
+          type: "object",
+          properties: {
+            id: stringSchema,
+            userId: stringSchema,
+            contactId: stringSchema,
+            recommendationId: nullableStringSchema,
+            outcomeType: ref("OutcomeType"),
+            notes: nullableStringSchema,
+            value: { type: ["number", "null"] },
+            createdAt: stringSchema
+          },
+          required: ["id", "userId", "contactId", "outcomeType", "createdAt"]
+        },
+        OutcomeCreateRequest: {
+          type: "object",
+          properties: {
+            userId: stringSchema,
+            contactId: stringSchema,
+            recommendationId: stringSchema,
+            outcomeType: ref("OutcomeType"),
+            notes: stringSchema,
+            value: { type: "number" }
+          },
+          required: ["contactId", "outcomeType"]
+        },
+        TractionSummary: {
+          type: "object",
+          properties: {
+            followUpsSent: { type: "integer" },
+            repliesReceived: { type: "integer" },
+            bookedMeetings: { type: "integer" },
+            wtpSignals: { type: "integer" },
+            paidCommits: { type: "integer" },
+            replyRateByOpportunityType: {
+              type: "object",
+              additionalProperties: scoreSchema
+            },
+            actionsCompleted: { type: "integer" },
+            contactsArchivedOrIgnored: { type: "integer" }
+          },
+          required: [
+            "followUpsSent",
+            "repliesReceived",
+            "bookedMeetings",
+            "wtpSignals",
+            "paidCommits",
+            "replyRateByOpportunityType",
+            "actionsCompleted",
+            "contactsArchivedOrIgnored"
+          ]
+        },
+        OutcomeCreateResponse: {
+          type: "object",
+          properties: {
+            outcome: ref("Outcome"),
+            updatedRecommendation: ref("ActionRecommendation"),
+            updatedTraction: ref("TractionSummary")
+          },
+          required: ["outcome", "updatedTraction"]
+        },
         WorkflowObjectiveSeed: {
           type: "object",
           properties: {
@@ -756,6 +1153,70 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
             webFallback: ref("WebFallbackResponse")
           },
           required: ["objective", "capture", "webFallback"]
+        },
+        WorkflowFullFlowRequest: {
+          allOf: [
+            ref("WorkflowCaptureEnrichRequest"),
+            {
+              type: "object",
+              properties: {
+                status: {
+                  type: "string",
+                  enum: [
+                    "new",
+                    "drafted",
+                    "sent",
+                    "reply",
+                    "booked",
+                    "archived"
+                  ]
+                },
+                hoursSinceLastAction: { type: "number" }
+              }
+            }
+          ]
+        },
+        WorkflowFullFlowResponse: {
+          type: "object",
+          properties: {
+            objective: {
+              type: "object",
+              properties: {
+                existed: { type: "boolean" },
+                created: { type: "boolean" },
+                objectiveId: stringSchema
+              },
+              required: ["existed", "created", "objectiveId"]
+            },
+            capture: ref("CaptureAcceptedResponse"),
+            extractionHandoff: {
+              type: "object",
+              description: "Part 1 -> Part 2 handoff object."
+            },
+            evidenceBundle: {
+              type: "object",
+              description: "Part 2 evidence bundle."
+            },
+            recommendationPackage: {
+              type: "object",
+              description: "Part 3 recommendation package, including draft when available."
+            },
+            events: {
+              type: "array",
+              items: {
+                type: "object",
+                description: "ProcessStageEvent emitted by the non-streaming workflow."
+              }
+            }
+          },
+          required: [
+            "objective",
+            "capture",
+            "extractionHandoff",
+            "evidenceBundle",
+            "recommendationPackage",
+            "events"
+          ]
         }
       }
     }

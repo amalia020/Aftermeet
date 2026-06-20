@@ -131,6 +131,7 @@ export async function geminiWebContext(input: {
   company?: string;
   role?: string;
   query: string;
+  now?: Date;
 }): Promise<WebContextResult> {
   const env = getServerEnv();
   const searchSubject = `${input.name ?? ""} ${input.company ?? ""} ${input.query}`.toLowerCase();
