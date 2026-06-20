@@ -10,7 +10,11 @@ export type JsonValue =
 
 export type CaptureType = "voice" | "text" | "card";
 
-export type WorkstreamOwner = "part_1_capture_extraction" | "part_2_enrichment_evidence" | "part_3_decision_action_experience";
+export type WorkstreamOwner =
+  | "part_1_capture_extraction"
+  | "part_2_enrichment_evidence"
+  | "part_3_decision_action_experience"
+  | "part_5_relationship_delta";
 
 export type ProcessStage =
   | "capturing"
