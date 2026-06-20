@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, CalendarClock, Radio, Search, TrendingDown } from "lucide-react";
+import { ArrowRight, CalendarClock, Radio, Search, ShieldAlert, TrendingDown } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import type { DailyBriefViewModel } from "@/lib/frontend/viewModels";
 
@@ -45,6 +45,15 @@ export function DailyBrief({ brief }: { brief: DailyBriefViewModel }) {
                 </div>
                 <p>{move.action}</p>
                 <small>{move.reason}</small>
+                <div className="move-policy-row">
+                  <span>{move.costOfSilence}</span>
+                  {move.whatToAvoid[0] ? (
+                    <span>
+                      <ShieldAlert size={13} />
+                      {move.whatToAvoid[0]}
+                    </span>
+                  ) : null}
+                </div>
               </div>
               <ArrowRight className="move-arrow" size={18} />
             </>
@@ -73,6 +82,7 @@ export function DailyBrief({ brief }: { brief: DailyBriefViewModel }) {
             <div>
               <h3>{brief.cooling.name}</h3>
               <p>{brief.cooling.reason}</p>
+              <small>{brief.cooling.costOfSilence}</small>
             </div>
           </div>
           {brief.cooling.href ? (

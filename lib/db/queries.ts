@@ -362,6 +362,18 @@ export function saveEvidenceBundle(bundle: EvidenceBundle): EvidenceBundle {
   });
 }
 
+export function listEvidenceBundles(userId: Id): EvidenceBundle[] {
+  return readDatabase().evidenceBundles.filter((bundle) => bundle.userId === userId);
+}
+
+export function getEvidenceBundleForConversation(conversationId: Id): EvidenceBundle | null {
+  return (
+    readDatabase().evidenceBundles.find(
+      (bundle) => bundle.conversationId === conversationId,
+    ) ?? null
+  );
+}
+
 export function saveOpportunityRoutes(routes: OpportunityRoute[]): OpportunityRoute[] {
   return updateDatabase((db) => {
     for (const route of routes) {

@@ -106,6 +106,9 @@ export function RelationshipBoard({ board }: { board: RelationshipBoardViewModel
                         <span className="mini-pill">{card.label}</span>
                       </div>
                       <p>{card.note}</p>
+                      {card.whatToAvoid ? (
+                        <small className="board-avoid">Avoid: {card.whatToAvoid}</small>
+                      ) : null}
                       <div className="draft-controls">
                         <button disabled={busyId === card.id} onClick={() => copyDraft(card)}>
                           {copiedId === card.id ? <Check size={15} /> : <Copy size={15} />}

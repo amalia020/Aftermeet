@@ -6,6 +6,7 @@ import {
   Check,
   Edit3,
   Heart,
+  ListChecks,
   MapPin,
   Rocket,
   Send,
@@ -88,6 +89,13 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
         </div>
         <h2>{person.recommendation.title}</h2>
         <p>{person.recommendation.reason}</p>
+        {person.recommendation.whyNow.length ? (
+          <ul className="policy-list">
+            {person.recommendation.whyNow.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        ) : null}
       </article>
 
       <article className="evidence-panel">
@@ -122,6 +130,39 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
         ) : (
           <p className="evidence-empty">No safe evidence facts have been persisted yet.</p>
         )}
+      </article>
+
+      <article className="evidence-panel">
+        <div className="section-label">
+          <ListChecks size={17} />
+          <span>Draft policy</span>
+        </div>
+        <div className="policy-columns">
+          <div>
+            <strong>Safe facts</strong>
+            {person.recommendation.safeFacts.length ? (
+              <ul className="evidence-list">
+                {person.recommendation.safeFacts.map((fact) => (
+                  <li key={fact}>{fact}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="evidence-empty">No safe facts selected for draft use.</p>
+            )}
+          </div>
+          <div>
+            <strong>Blocked facts</strong>
+            {person.recommendation.blockedFacts.length ? (
+              <ul className="evidence-list">
+                {person.recommendation.blockedFacts.map((fact) => (
+                  <li key={fact}>{fact}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="evidence-empty">No facts blocked by the daily policy.</p>
+            )}
+          </div>
+        </div>
       </article>
 
       <article className="avoid-panel">

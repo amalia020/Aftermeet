@@ -8,7 +8,7 @@ export function MissionRadar({ radar }: { radar: MissionRadarViewModel }) {
       <div className="screen-kicker">Mission radar</div>
       <h1>{radar.missionTitle}</h1>
       <p className="screen-intro">
-        Calibrated by mission fit and timing pressure. High-right means action earns attention today.
+        Calibrated by Part 5 daily policy: mission impact across the floor, timing pressure up the wall.
       </p>
 
       <div className="radar-console">

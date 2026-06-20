@@ -19,10 +19,15 @@ import {
   personIntelligence as demoPersonIntelligence,
   relationshipBoard as demoRelationshipBoard,
 } from "@/lib/frontend/mockData";
+import {
+  scoreStoredRelationshipMoves,
+  selectStoredDailyMoves
+} from "@/lib/intelligence/layer5/adapters";
 import type {
   ActionRecommendation,
   Contact,
   CaptureScreenViewModel,
+  DailyMoveDecision,
   Draft,
   FollowUpBoardViewModel as BaseFollowUpBoardViewModel,
   Id,
@@ -45,6 +50,9 @@ export interface BriefMove {
   label: string;
   action: string;
   reason: string;
+  whyNow: string[];
+  whatToAvoid: string[];
+  costOfSilence: string;
   href?: string;
 }
 
@@ -111,6 +119,14 @@ export interface PersonIntelligenceViewModel extends PersonViewModel {
     reason: string;
     avoid: string;
     draft: string;
+    whyNow: string[];
+    whyThisAction: string[];
+    whyNot: string[];
+    whatToAvoid: string[];
+    risks: string[];
+    safeFacts: string[];
+    blockedFacts: string[];
+    costOfSilence: string;
   };
 }
 
@@ -126,6 +142,9 @@ export interface BoardCard {
   contactId?: Id;
   recommendationId?: Id;
   draftBody?: string;
+  whyNow?: string;
+  whatToAvoid?: string;
+  relationshipState?: DailyMoveDecision["relationshipState"];
 }
 
 export interface BoardSection {
@@ -246,34 +265,34 @@ function formatAction(action: RecommendedActionType): string {
   return labels[action] ?? titleCase(action);
 }
 
-function actionSignal(action: RecommendedActionType): BriefMove["signal"] {
-  if (action === "MAKE_INTRO") return "network";
-  if (["WAIT", "SNOOZE", "DO_NOT_CONTACT", "STAY_CALM"].includes(action)) {
+function relationshipActionLabel(action: DailyMoveDecision["recommendedAction"]): string {
+  return titleCase(action);
+}
+
+function moveSignal(move: DailyMoveDecision): BriefMove["signal"] {
+  if (move.recommendedAction === "make_intro") return "network";
+  if (["wait", "snooze", "do_not_act", "confirm_details"].includes(move.recommendedAction)) {
     return "hold";
   }
   return "follow";
 }
 
-function actionLabel(rec: ActionRecommendation): string {
-  if (rec.status === "sent") return "Sent";
-  if (rec.status === "snoozed") return "Snoozed";
-  if (rec.status === "archived") return "Archived";
-  if (rec.recommendedAction === "MAKE_INTRO") return "Intro path";
-  if (actionSignal(rec.recommendedAction) === "hold") return "Hold";
-  if (rec.urgencyScore >= 0.7) return "Follow today";
+function moveLabel(move: DailyMoveDecision): string {
+  if (move.recommendedAction === "confirm_details") return "Confirm first";
+  if (move.suggestedTiming === "today") return "Best move today";
+  if (move.relationshipState === "cooling") return "Cooling";
+  if (move.suggestedTiming === "wait") return "Wait";
   return "Next best move";
+}
+
+function costOfSilenceLabel(move: DailyMoveDecision): string {
+  if (move.costOfSilence >= 0.35) return "High cost of silence";
+  if (move.costOfSilence >= 0.15) return "Medium cost of silence";
+  return "Low cost to wait";
 }
 
 function contactFor(rec: ActionRecommendation): Contact | null {
   return getContact(rec.contactId);
-}
-
-function contactRoleLine(contact: Contact | null): string {
-  return [contact?.role, contact?.company].filter(Boolean).join(" at ") || "Captured relationship";
-}
-
-function boardRoleLine(contact: Contact | null): string {
-  return [contact?.role, contact?.company].filter(Boolean).join(" at ") || "Relationship signal";
 }
 
 function firstReason(rec: ActionRecommendation): string {
@@ -293,19 +312,20 @@ function firstAvoidance(rec: ActionRecommendation): string {
   );
 }
 
-function buildMove(rec: ActionRecommendation): BriefMove {
-  const contact = contactFor(rec);
-  const name = contact?.name ?? rec.explanation.chosenRoute.contactId ?? "Unknown contact";
+function buildPart5Move(move: DailyMoveDecision): BriefMove {
   return {
-    id: rec.id,
-    name,
-    role: contactRoleLine(contact),
-    initials: initials(name),
-    signal: actionSignal(rec.recommendedAction),
-    label: actionLabel(rec),
-    action: formatAction(rec.recommendedAction),
-    reason: firstReason(rec),
-    href: `/contacts/${rec.contactId}`,
+    id: move.relationshipId,
+    name: move.contactName ?? "Unknown contact",
+    role: [move.company, move.relationshipState].filter(Boolean).join(" · "),
+    initials: initials(move.contactName),
+    signal: moveSignal(move),
+    label: moveLabel(move),
+    action: relationshipActionLabel(move.recommendedAction),
+    reason: move.whyNow[0] ?? move.whyThisAction[0] ?? "This move best fits today's relationship policy.",
+    whyNow: move.whyNow,
+    whatToAvoid: move.whatToAvoid,
+    costOfSilence: costOfSilenceLabel(move),
+    href: `/contacts/${move.contactId}`,
   };
 }
 
@@ -370,12 +390,27 @@ function tractionSummary(userId: Id): TractionSummary {
 }
 
 function demoBriefWithObjective(objective: UserObjectiveProfile): DailyBriefViewModel {
+  const moves = demoDailyBrief.moves.map((move) => ({
+    ...move,
+    whyNow: [move.reason],
+    whatToAvoid: ["Do not automate outreach; keep the final action user-controlled."],
+    costOfSilence: "Demo policy preview",
+  }));
   return {
     ...demoDailyBrief,
     activeObjective: objective,
     missionTitle: missionTitle(objective),
     missionContext: objective.eventContext ?? "Active mission context",
     currentDate: formatDate(),
+    moves,
+    cooling: demoDailyBrief.cooling
+      ? {
+          ...demoDailyBrief.cooling,
+          whyNow: [demoDailyBrief.cooling.reason],
+          whatToAvoid: ["Keep the re-engagement light and specific."],
+          costOfSilence: "Medium cost of silence",
+        }
+      : undefined,
   };
 }
 
@@ -384,10 +419,18 @@ export function getDailyBriefViewModel(userId = DEMO_USER_ID): DailyBriefViewMod
   const recs = liveRecommendations(userId);
   if (!recs.length) return demoBriefWithObjective(objective);
 
-  const moves = recs.slice(0, 3).map(buildMove);
-  const coolingRec =
-    recs.find((rec) => rec.urgencyScore >= 0.7 || rec.recipientBurden >= 0.7) ??
-    recs[0];
+  const dailyMoves = selectStoredDailyMoves({
+    userId,
+    objective,
+    generatedAt: new Date().toISOString()
+  });
+  const moves = dailyMoves.map(buildPart5Move);
+  const scoredMoves = scoreStoredRelationshipMoves({
+    userId,
+    objective,
+    generatedAt: new Date().toISOString()
+  });
+  const coolingMove = scoredMoves.find((move) => move.relationshipState === "cooling");
   const sentOrWaiting = recs.filter(
     (rec) =>
       rec.status === "sent" ||
@@ -399,9 +442,11 @@ export function getDailyBriefViewModel(userId = DEMO_USER_ID): DailyBriefViewMod
     missionTitle: missionTitle(objective),
     missionContext: objective.eventContext ?? "Active mission context",
     currentDate: formatDate(),
-    headline: `${moves.length} move${moves.length === 1 ? "" : "s"} can advance ${missionTitle(objective)}`,
+    headline: moves.length
+      ? `${moves.length} best move${moves.length === 1 ? "" : "s"} can advance ${missionTitle(objective)}`
+      : "No critical relationship moves today",
     moves,
-    cooling: coolingRec ? buildMove(coolingRec) : undefined,
+    cooling: coolingMove ? buildPart5Move(coolingMove) : undefined,
     missionGap: missionGap(objective),
     proof: [
       { label: "Today", value: String(moves.length), note: "high-leverage moves" },
@@ -409,15 +454,6 @@ export function getDailyBriefViewModel(userId = DEMO_USER_ID): DailyBriefViewMod
       { label: "Blocked", value: String(sentOrWaiting), note: "waiting or hold states" },
     ],
   };
-}
-
-function nodeState(rec: ActionRecommendation): RadarNode["state"] {
-  if (["WAIT", "SNOOZE", "DO_NOT_CONTACT", "STAY_CALM"].includes(rec.recommendedAction)) {
-    return "waiting";
-  }
-  if (rec.urgencyScore >= 0.75) return "cooling";
-  if (rec.priorityScore >= 0.65) return "action";
-  return "warm";
 }
 
 export function getMissionRadarViewModel(userId = DEMO_USER_ID): MissionRadarViewModel {
@@ -431,19 +467,30 @@ export function getMissionRadarViewModel(userId = DEMO_USER_ID): MissionRadarVie
     };
   }
 
-  const nodes: RadarNode[] = recs.slice(0, 7).map((rec) => {
-    const contact = contactFor(rec);
-    const name = contact?.name ?? "Unknown";
-    const goalFit = rec.explanation.confidenceBreakdown.userGoalFit;
+  const scoredMoves = scoreStoredRelationshipMoves({
+    userId,
+    objective,
+    generatedAt: new Date().toISOString()
+  });
+
+  const nodes: RadarNode[] = scoredMoves.slice(0, 7).map((move) => {
+    const name = move.contactName ?? "Unknown";
     return {
-      id: rec.id,
+      id: move.relationshipId,
       name,
       initials: initials(name),
-      x: Math.round(12 + Math.min(Math.max(goalFit, 0), 1) * 78),
-      y: Math.round(12 + Math.min(Math.max(rec.urgencyScore, 0), 1) * 78),
-      state: nodeState(rec),
-      note: firstReason(rec),
-      href: `/contacts/${rec.contactId}`,
+      x: Math.round(12 + move.scoreBreakdown.missionImpact * 78),
+      y: Math.round(12 + move.scoreBreakdown.timingWindow * 78),
+      state:
+        move.recommendedAction === "confirm_details" || move.suggestedTiming === "wait"
+          ? "waiting"
+          : move.relationshipState === "cooling"
+            ? "cooling"
+            : move.dailyPriority >= 0.12
+              ? "action"
+              : "warm",
+      note: move.whyNow[0] ?? move.whyThisAction[0],
+      href: `/contacts/${move.contactId}`,
     };
   });
 
@@ -457,20 +504,18 @@ export function getMissionRadarViewModel(userId = DEMO_USER_ID): MissionRadarVie
     note: missionGap(objective),
   });
 
-  const bridges = recs
+  const bridges = scoredMoves
     .filter(
-      (rec) =>
-        rec.recommendedAction === "MAKE_INTRO" ||
-        rec.explanation.chosenRoute.type === "partner" ||
-        rec.explanation.chosenRoute.type === "candidate",
+      (move) =>
+        move.recommendedAction === "make_intro" ||
+        move.scoreBreakdown.missionImpact >= 0.55,
     )
     .slice(0, 3)
-    .map((rec) => {
-      const contact = contactFor(rec);
+    .map((move) => {
       return {
-        from: contact?.name ?? "contact",
+        from: move.contactName ?? "contact",
         to: "mission gap",
-        label: titleCase(rec.explanation.chosenRoute.type),
+        label: relationshipActionLabel(move.recommendedAction),
       };
     });
 
@@ -484,26 +529,29 @@ export function getMissionRadarViewModel(userId = DEMO_USER_ID): MissionRadarVie
   };
 }
 
-function cardFor(rec: ActionRecommendation): BoardCard {
-  const contact = contactFor(rec);
-  const name = contact?.name ?? "Unknown contact";
-  const draft = getDraftForRecommendation(rec.id);
+function cardForMove(move: DailyMoveDecision, userId: Id): BoardCard {
+  const rec = getRecommendationForContactSafe(move.contactId, userId);
+  const draft = rec ? getDraftForRecommendation(rec.id) : null;
   return {
-    id: rec.id,
-    name,
-    role: boardRoleLine(contact),
-    label: actionLabel(rec),
-    note: firstReason(rec),
-    action: formatAction(rec.recommendedAction),
-    disabled:
-      rec.status === "sent" ||
-      rec.status === "snoozed" ||
-      ["WAIT", "SNOOZE", "DO_NOT_CONTACT", "STAY_CALM"].includes(rec.recommendedAction),
-    href: `/contacts/${rec.contactId}`,
-    contactId: rec.contactId,
-    recommendationId: rec.id,
+    id: move.relationshipId,
+    name: move.contactName ?? "Unknown contact",
+    role: [move.company, move.relationshipState].filter(Boolean).join(" · "),
+    label: moveLabel(move),
+    note: move.whyNow[0] ?? move.whyThisAction[0] ?? "Daily policy selected this relationship state.",
+    action: relationshipActionLabel(move.recommendedAction),
+    disabled: ["wait", "snooze", "confirm_details", "do_not_act"].includes(move.recommendedAction),
+    href: `/contacts/${move.contactId}`,
+    contactId: move.contactId,
+    recommendationId: rec?.id,
     draftBody: draft?.body,
+    whyNow: move.whyNow[0],
+    whatToAvoid: move.whatToAvoid[0],
+    relationshipState: move.relationshipState,
   };
+}
+
+function getRecommendationForContactSafe(contactId: Id, userId: Id): ActionRecommendation | null {
+  return liveRecommendations(userId).find((rec) => rec.contactId === contactId) ?? null;
 }
 
 export function getRelationshipBoardViewModel(userId = DEMO_USER_ID): RelationshipBoardViewModel {
@@ -513,15 +561,15 @@ export function getRelationshipBoardViewModel(userId = DEMO_USER_ID): Relationsh
   const sections: BoardSection[] = [
     {
       id: "needs-action",
-      title: "Needs Action",
-      context: "High priority",
+      title: "Act Today",
+      context: "Daily policy selected",
       tone: "urgent",
       cards: [],
     },
     {
-      id: "warm",
-      title: "Warm",
-      context: "Active context",
+      id: "confirm",
+      title: "Confirm First",
+      context: "Useful but uncertain",
       tone: "warm",
       cards: [],
     },
@@ -548,13 +596,19 @@ export function getRelationshipBoardViewModel(userId = DEMO_USER_ID): Relationsh
     },
   ];
 
-  for (const rec of recs) {
-    const card = cardFor(rec);
-    if (rec.status === "archived") sections[4].cards.push(card);
-    else if (card.disabled) sections[2].cards.push(card);
-    else if (rec.urgencyScore >= 0.75) sections[3].cards.push(card);
-    else if (rec.priorityScore >= 0.62) sections[0].cards.push(card);
-    else sections[1].cards.push(card);
+  const scoredMoves = scoreStoredRelationshipMoves({
+    userId,
+    objective: activeObjective(userId),
+    generatedAt: new Date().toISOString()
+  });
+
+  for (const move of scoredMoves) {
+    const card = cardForMove(move, userId);
+    if (move.recommendedAction === "confirm_details") sections[1].cards.push(card);
+    else if (move.recommendedAction === "wait" || move.recommendedAction === "snooze" || move.relationshipState === "waiting") sections[2].cards.push(card);
+    else if (move.relationshipState === "cooling") sections[3].cards.push(card);
+    else if (move.dailyPriority >= 0.12 || move.suggestedTiming === "today") sections[0].cards.push(card);
+    else sections[4].cards.push(card);
   }
 
   return {
@@ -578,8 +632,20 @@ function warmthLabel(rec?: ActionRecommendation): PersonIntelligenceViewModel["w
 }
 
 function fallbackPerson(): PersonIntelligenceViewModel {
+  const recommendation = {
+    ...demoPersonIntelligence.recommendation,
+    whyNow: [demoPersonIntelligence.systemNote],
+    whyThisAction: [demoPersonIntelligence.recommendation.reason],
+    whyNot: [],
+    whatToAvoid: [demoPersonIntelligence.recommendation.avoid],
+    risks: [],
+    safeFacts: [],
+    blockedFacts: [],
+    costOfSilence: "Demo policy preview",
+  };
   return {
     ...demoPersonIntelligence,
+    recommendation,
     evidence: {
       facts: [],
       sourceCount: 0,
@@ -631,6 +697,11 @@ export function getPersonIntelligenceViewModel(
     selectedRec ??
     recs.find((candidate) => candidate.contactId === contact.id);
   const draft: Draft | null = rec ? getDraftForRecommendation(rec.id) : null;
+  const move = scoreStoredRelationshipMoves({
+    userId,
+    objective: activeObjective(userId),
+    generatedAt: new Date().toISOString()
+  }).find((candidate) => candidate.contactId === contact.id);
   const evidenceFacts = listEvidenceFacts(contact.id)
     .sort((left, right) => right.factConfidence - left.factConfidence)
     .slice(0, 5);
@@ -656,8 +727,10 @@ export function getPersonIntelligenceViewModel(
     },
     warmth: warmthLabel(rec),
     missionFit: missionFitLabel(confidence?.userGoalFit ?? 0.5),
-    systemNote: rec
-      ? `${facts.length || safeFacts.length} usable fact${facts.length === 1 ? "" : "s"} and ${sourceCount} public source${sourceCount === 1 ? "" : "s"} inform this recommendation.`
+    systemNote: move
+      ? `${costOfSilenceLabel(move)}. ${move.whyNow[0] ?? "Daily policy scored this relationship."}`
+      : rec
+        ? `${facts.length || safeFacts.length} usable fact${facts.length === 1 ? "" : "s"} and ${sourceCount} public source${sourceCount === 1 ? "" : "s"} inform this recommendation.`
       : "Captured contact is ready for enrichment and recommendation.",
     evidence: {
       facts,
@@ -673,10 +746,22 @@ export function getPersonIntelligenceViewModel(
     recommendation: {
       id: rec?.id,
       contactId: contact.id,
-      title: rec ? `Best move today: ${formatAction(rec.recommendedAction).toLowerCase()}` : "No recommendation yet",
-      reason: rec ? firstReason(rec) : "Capture or enrich more context to produce a decision trace.",
-      avoid: rec ? firstAvoidance(rec) : "Do not contact until the context is clear enough.",
+      title: move
+        ? `Best move today: ${relationshipActionLabel(move.recommendedAction).toLowerCase()}`
+        : rec
+          ? `Best move today: ${formatAction(rec.recommendedAction).toLowerCase()}`
+          : "No recommendation yet",
+      reason: move ? move.whyThisAction[0] ?? move.whyNow[0] : rec ? firstReason(rec) : "Capture or enrich more context to produce a decision trace.",
+      avoid: move ? move.whatToAvoid[0] ?? "Keep the final action user-controlled." : rec ? firstAvoidance(rec) : "Do not contact until the context is clear enough.",
       draft: draft?.body ?? "No draft has been generated for this recommendation yet.",
+      whyNow: move?.whyNow ?? [],
+      whyThisAction: move?.whyThisAction ?? [],
+      whyNot: move?.whyNot ?? [],
+      whatToAvoid: move?.whatToAvoid ?? (rec ? [firstAvoidance(rec)] : []),
+      risks: move?.risks ?? [],
+      safeFacts: move?.safeFactsForDraft ?? safeFacts,
+      blockedFacts: move?.blockedFacts ?? [],
+      costOfSilence: move ? costOfSilenceLabel(move) : "Not scored by daily policy",
     },
   };
 }

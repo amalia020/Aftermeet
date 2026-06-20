@@ -292,6 +292,20 @@ h2 {
   margin-top: 6px;
 }
 
+.move-policy-row {
+  color: var(--dim);
+  display: grid;
+  font-size: 0.78rem;
+  gap: 5px;
+  margin-top: 9px;
+}
+
+.move-policy-row span {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+}
+
 .move-arrow {
   color: var(--violet);
 }
@@ -889,6 +903,26 @@ h2 {
   padding-left: 20px;
 }
 
+.policy-list {
+  color: var(--muted);
+  display: grid;
+  gap: 8px;
+  line-height: 1.42;
+  margin: 18px 0 0;
+  padding-left: 18px;
+}
+
+.policy-columns {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.policy-columns strong {
+  display: block;
+  margin-bottom: 10px;
+}
+
 .avoid-panel {
   align-items: flex-start;
   background: rgba(255, 165, 160, 0.06);
@@ -1024,6 +1058,13 @@ h2 {
 .relationship-card p {
   line-height: 1.4;
   margin-top: 20px;
+}
+
+.board-avoid {
+  color: var(--coral);
+  display: block;
+  line-height: 1.35;
+  margin-top: 10px;
 }
 
 .draft-controls {
