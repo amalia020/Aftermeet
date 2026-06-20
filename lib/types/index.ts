@@ -6,5 +6,4 @@ export * from "./conversation";
 export * from "./handoffs";
 export * from "./outcome";
 export * from "./recommendation";
-export * from "./ui";
 export * from "./user";

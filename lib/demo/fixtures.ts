@@ -1,7 +1,6 @@
 /**
  * Assembled demo fixtures (Phase 25). Builds the full handoff chain
- * (ExtractionHandoff -> EvidenceBundle -> RecommendationPackage) plus the
- * FrontendMockDataset that Part 4 renders without importing any backend logic.
+ * (ExtractionHandoff -> EvidenceBundle -> RecommendationPackage).
  *
  * These are hand-authored so the demo is bulletproof even if every live
  * provider is down. The shapes match lib/types exactly.
@@ -14,7 +13,6 @@ import type {
   EvidenceBundle,
   ExtractionProviderResult,
   ExtractionHandoff,
-  FrontendMockDataset,
   ProcessStageEvent,
   RecommendationPackage,
   User,
@@ -436,11 +434,3 @@ export const demoProcessingEvents: ProcessStageEvent[] = [
   { requestId: REQUEST_ID, conversationId: CONVERSATION_ID, stage: "generating_draft", status: "completed", timestamp: DEMO_NOW },
   { requestId: REQUEST_ID, conversationId: CONVERSATION_ID, stage: "handoff_ready", status: "completed", timestamp: DEMO_NOW },
 ];
-
-export const frontendMockDataset: FrontendMockDataset = {
-  objective: part1DemoObjective,
-  extractionHandoff: part1DemoHandoff,
-  evidenceBundle: part2DemoEvidenceBundle,
-  recommendationPackage: part3DemoRecommendationPackage,
-  processingEvents: demoProcessingEvents,
-};
