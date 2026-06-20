@@ -7,4 +7,5 @@ export * from "./frontend";
 export * from "./handoffs";
 export * from "./outcome";
 export * from "./recommendation";
+export * from "./relationshipDelta";
 export * from "./user";
