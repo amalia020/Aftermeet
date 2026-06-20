@@ -1,15 +1,16 @@
-# AfterMeet Intelligence Layer Part 3 - Decision, Action, and Experience SDD
+# AfterMeet Intelligence Layer Part 3 - Decision and Action Engine SDD
 
 ## 1. Introduction
 
 ### Purpose
 
-This document defines the independent implementation scope for the Decision, Action, and Experience workstream of the AfterMeet intelligence layer. It consumes the Part 2 evidence bundle, computes goal-conditioned opportunity routes, chooses the next best action, gates safe facts, generates drafts only after action selection, and presents the result through the decision trace, board, terminal, traction, and feedback experiences.
+This document defines the independent implementation scope for the Decision and Action Engine workstream of the AfterMeet intelligence layer. It consumes the Part 2 evidence bundle, computes goal-conditioned opportunity routes, chooses the next best action, gates safe facts, generates drafts only after action selection, and emits typed packages for the frontend visualization workstream.
 
 ### Intended Audience
 
-- Engineer owning clustering, opportunity routing, scoring, action policy, draft permission, draft generation, decision trace, board, terminal, traction, and feedback learning.
+- Engineer owning clustering, opportunity routing, scoring, action policy, draft permission, draft generation, decision trace objects, recommendation packages, and feedback learning.
 - Engineer integrating with Part 2 evidence bundles.
+- Frontend engineer consuming recommendation packages for decision trace, board, terminal, traction, and draft preview. See Part 4.
 - Reviewer validating user control, explainability, no-auto-send behavior, and recommendation quality.
 
 ### Scope
@@ -22,8 +23,8 @@ Included:
 - Opportunity priority score.
 - Action policy engine.
 - Draft permission gate and draft generation.
-- Decision trace object and UI presentation.
-- Opportunity terminal, cluster recommendation, follow-up board, traction view, and feedback learning.
+- Decision trace object and view-ready recommendation package.
+- Cluster recommendation, board-card data, traction summaries, and feedback learning.
 - Persistence for routes, recommendations, drafts, and outcomes.
 - Demo fixtures for decision trace, recommendations, board, and drafts.
 - Unit tests for deterministic scoring and policy functions.
@@ -32,6 +33,7 @@ Excluded:
 
 - User objective setup, capture, transcription, and extraction. See Part 1.
 - Public enrichment, source records, entity resolution, and fact confidence computation. See Part 2.
+- User-visible routes, components, and visual layout for decision trace, board, terminal, traction, and draft preview. See Part 4.
 - Automatic outreach. The user always sends, edits, snoozes, archives, or marks outcomes manually.
 
 ### Definitions
@@ -51,12 +53,13 @@ Excluded:
 
 - Source spec: `docs/intelligence-layer-specs.md`
 - Parallel ownership map: `docs/intelligence-layer-parallel-work-ownership.md`
+- Frontend visualization SDD: `docs/intelligence-layer-part-4-frontend-visualization-sdd.md`
 - Shared contracts: `lib/types/index.ts`
 - Covered source sections: Product Philosophy, Core Demo Narrative, Database Schema 6.9-6.12, Hard Rules, Pipeline steps 9-18, Phases 9-22, Phase 24.4-24.9, Phase 25, Phase 26 policy tests, Phase 27 build order, Phase 28 MVP cut lines, Phase 29 final MVP acceptance criteria.
 
 ### Parallel Work Ownership
 
-Part 3 owns deterministic decisioning, draft permission, draft generation, decision trace, board, terminal, traction, and feedback learning. It consumes `EvidenceBundle` and produces `RecommendationPackage` from `lib/types/handoffs.ts`; it should not edit capture, extraction, Cala, Gemini, entity resolution, or fact confidence implementation files.
+Part 3 owns deterministic decisioning, draft permission, draft generation, decision trace objects, board-card data, terminal data, traction summaries, and feedback learning. It consumes `EvidenceBundle` and produces `RecommendationPackage` from `lib/types/handoffs.ts`; it should not edit frontend components, capture, extraction, Cala, Gemini, entity resolution, or fact confidence implementation files.
 
 Owned implementation paths:
 
@@ -64,17 +67,6 @@ Owned implementation paths:
 app/api/intelligence/recommend/route.ts
 app/api/draft/generate/route.ts
 app/api/outcomes/route.ts
-app/board/*
-app/terminal/*
-app/contacts/*
-components/DecisionTrace.tsx
-components/FiveForksView.tsx
-components/FollowUpBoard.tsx
-components/OpportunityMatrix.tsx
-components/RecommendedGroupCard.tsx
-components/ActionQueue.tsx
-components/DraftPreview.tsx
-components/TractionView.tsx
 lib/intelligence/userObjective.ts
 lib/intelligence/clustering.ts
 lib/intelligence/opportunityRouting.ts
@@ -101,6 +93,7 @@ Contract rules:
 - Import shared types from `lib/types/index.ts`.
 - Keep changes to `RecommendationPackage` additive unless the product UI or process route owner agrees.
 - Do not call Part 2 provider files directly; consume `EvidenceBundle`.
+- Part 4 owns all components and app pages; Part 3 provides API responses and typed package data only.
 - Draft-specific Claude prompts belong in `lib/intelligence/draftGeneration.ts`, not in the low-level provider wrapper.
 - Database work in this stream should be limited to `opportunity_routes`, `action_recommendations`, `drafts`, and `outcomes`.
 
@@ -127,12 +120,15 @@ flowchart LR
   Policy --> Gate[Draft Permission Gate]
   Gate --> Draft[Draft Generation]
   Policy --> Trace[Decision Trace]
-  Trace --> UI[Decision Trace UI]
-  Policy --> Board[Follow-Up Board]
-  Policy --> Terminal[Opportunity Terminal]
-  Board --> Outcomes[Outcomes and Traction]
+  Trace --> Package[Recommendation Package]
+  Policy --> BoardData[Board Card Data]
+  Policy --> TerminalData[Terminal Data]
+  BoardData --> Outcomes[Outcomes and Traction]
   Outcomes --> Feedback[Feedback Learning]
   Feedback --> Decision
+  Package --> Part4[Part 4 Frontend]
+  BoardData --> Part4
+  TerminalData --> Part4
 ```
 
 ### Key Components
@@ -151,7 +147,7 @@ flowchart LR
 | `lib/intelligence/decisionTrace.ts` | Assemble human-readable decision trace. |
 | `lib/intelligence/groupRecommendation.ts` | Recommend groups/clusters to prioritize next. |
 | `lib/intelligence/feedbackLearning.ts` | Apply small outcome-based score adjustments. |
-| `DecisionTrace.tsx`, `FollowUpBoard.tsx`, `OpportunityMatrix.tsx`, `TractionView.tsx` | User-facing decision and workflow surfaces. |
+| `RecommendationPackage` | Typed output consumed by Part 4 frontend screens. |
 
 ### External Integrations
 
@@ -179,7 +175,7 @@ flowchart LR
 - Do not recommend follow-up for every contact.
 - Do not make the product founder-only; all scoring must be goal-conditioned.
 - Do not use leaderboard-style grading of humans.
-- The UI must show why this action and why not other actions.
+- The recommendation package must include why this action and why not other actions.
 - Feedback learning must not overfit to one outcome.
 
 ### Dependencies
@@ -890,26 +886,26 @@ function buildDecisionTrace(input: {
 }): DecisionTrace;
 ```
 
-#### UI Requirements
+#### Frontend Contract Requirements
 
-- Cascade sections: Conversation, Facts, Context, Routes, Decision, Draft.
-- Understandable in under 10 seconds.
-- Show suppressed routes and why-not explanations.
-- Show "public context unavailable" without apology loops or invented facts.
+- Provide sections for Conversation, Facts, Context, Routes, Decision, and Draft.
+- Include concise enough data for Part 4 to render an under-10-second explanation.
+- Include suppressed routes and why-not explanations.
+- Include "public context unavailable" warnings without invented facts.
 
 #### Verification
 
-- Component test with demo narrative.
 - Snapshot test of trace object.
-- Manual demo review.
+- Contract test with demo narrative.
+- Part 4 owns component tests and manual demo review.
 
-### 7.7 Board, Terminal, Traction, and Feedback Design
+### 7.7 Board, Terminal, Traction Data, and Feedback Design
 
 #### Responsibilities
 
-- Follow-Up Board tracks status and warmth.
-- Opportunity Terminal shows objective, coverage, gaps, recommended clusters, action queue, and attention budget.
-- Traction View shows proof metrics, not vanity capture counts.
+- Produce follow-up board card data with status and warmth.
+- Produce terminal data for objective, coverage, gaps, recommended clusters, action queue, and attention budget.
+- Produce traction summaries based on proof metrics, not vanity capture counts.
 - Feedback Learning applies small outcome-based adjustments.
 
 #### Interface
@@ -941,8 +937,8 @@ function feedbackBoost(input: {
 
 - Unit test feedback boost is capped and small.
 - Integration test outcome updates traction summary.
-- Component test board columns and warning flags.
-- Component test terminal adapts to different user objectives.
+- Contract test board-card warning flags.
+- Contract test terminal data adapts to different user objectives.
 
 ## 8. Appendix
 
@@ -953,13 +949,13 @@ function feedbackBoost(input: {
 | P3-REQ-001 User and contact clusters are multi-label. | `userObjective.ts`, `clustering.ts` | Unit tests |
 | P3-REQ-002 Opportunity routes include why and why-not. | `opportunityRouting.ts` | Unit and snapshot tests |
 | P3-REQ-003 Recipient burden blocks spammy actions. | `recipientBurden.ts`, `actionPolicy.ts` | Unit tests |
-| P3-REQ-004 Warmth depends on opportunity type and status. | `warmthDecay.ts`, board | Unit and component tests |
+| P3-REQ-004 Warmth depends on opportunity type and status. | `warmthDecay.ts`, board-card data | Unit and contract tests |
 | P3-REQ-005 Action policy can recommend no action. | `actionPolicy.ts` | Unit tests |
 | P3-REQ-006 Drafts use only approved facts. | `draftPolicy.ts`, `draftGeneration.ts` | Unit and integration tests |
-| P3-REQ-007 Messages are never auto-sent. | Draft UI, outcome flow | Manual and component tests |
+| P3-REQ-007 Messages are never auto-sent. | Draft policy, outcome flow | Unit and integration tests |
 | P3-REQ-008 Every recommendation has a decision trace. | `decisionTrace.ts`, recommendation persistence | Integration test |
-| P3-REQ-009 Board tracks status and rare warning flags. | `FollowUpBoard.tsx`, warmth scoring | Component tests |
-| P3-REQ-010 Traction view shows proof metrics. | `TractionView.tsx`, outcomes | Integration test |
+| P3-REQ-009 Board data tracks status and rare warning flags. | Board-card builder, warmth scoring | Contract tests |
+| P3-REQ-010 Traction summary shows proof metrics. | Outcomes and traction summary builder | Integration test |
 | P3-REQ-011 Feedback learning affects future scores slightly. | `feedbackLearning.ts` | Unit tests |
 | P3-REQ-012 Demo mode works without live draft provider. | Demo fixtures | Env-based integration test |
 
@@ -967,7 +963,7 @@ function feedbackBoost(input: {
 
 Part 3 consumes the `EvidenceBundle` defined in Part 2. It must not call Cala, Gemini, or source confidence directly.
 
-### Handoff to Product UI
+### Handoff to Part 4 Frontend
 
 Part 3 is complete when it can reliably produce this object:
 
@@ -990,13 +986,12 @@ interface RecommendationPackage {
 4. Recipient burden and warmth decay.
 5. Priority scoring.
 6. Action policy.
-7. Decision trace fixture and UI.
+7. Decision trace fixture and package builder.
 8. Draft gate and generation.
-9. Contact list, person view, and board.
-10. Opportunity terminal.
-11. Traction view.
-12. Feedback learning.
-13. Demo fallback and polish.
+9. Board-card and terminal data.
+10. Traction summary.
+11. Feedback learning.
+12. Demo fallback and polish.
 
 ### MVP Cut Lines for This Workstream
 
@@ -1015,12 +1010,12 @@ Never cut:
 - Decision trace.
 - Draft permission gate.
 - Manual send control.
-- Board.
+- Board-card data.
 
 ### Deferred Decisions
 
 - Exact tone taxonomy for route-specific drafts.
-- Whether opportunity terminal ships as a separate route or dashboard panel.
+- Exact terminal data shape needed by Part 4.
 - Minimum outcome count before feedback boost is applied.
 - Whether WTP uses a Mollie link directly or a manual outcome marker in MVP.
 

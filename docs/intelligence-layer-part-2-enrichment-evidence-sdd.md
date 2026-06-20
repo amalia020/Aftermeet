@@ -10,6 +10,7 @@ This document defines the independent implementation scope for the Enrichment an
 
 - Engineer owning Cala integration, Gemini grounded web fallback, source records, entity resolution, and fact confidence.
 - Engineer integrating the evidence bundle with Part 3 scoring and decisioning.
+- Frontend engineer consuming Part 2 evidence and source data for source register and confidence visuals. See Part 4.
 - Reviewer validating privacy, source attribution, confidence logic, and fallback behavior.
 
 ### Scope
@@ -23,12 +24,13 @@ Included:
 - Entity match confidence.
 - Evidence fact creation and deterministic fact confidence.
 - Persistence for public context, source records, and evidence facts.
-- Source register UI data shape for Part 3 screens.
+- Source register and confidence display data for Part 4 screens.
 
 Excluded:
 
 - Conversation capture and LLM extraction. See Part 1.
 - Opportunity routing, action selection, draft generation, board, terminal, outcomes, and feedback learning. See Part 3.
+- User-visible source register and confidence components. See Part 4.
 - Bulk people discovery, event attendee scraping, LinkedIn scraping, or marketplace features. These are explicitly out of scope.
 
 ### Definitions
@@ -47,20 +49,19 @@ Excluded:
 
 - Source spec: `docs/intelligence-layer-specs.md`
 - Parallel ownership map: `docs/intelligence-layer-parallel-work-ownership.md`
+- Frontend visualization SDD: `docs/intelligence-layer-part-4-frontend-visualization-sdd.md`
 - Shared contracts: `lib/types/index.ts`
 - Covered source sections: Product Philosophy 2.4-2.5, Database Schema 6.6-6.8, ADR-003, Hard Rules, Pipeline steps 4-8, Phases 5-8, Phase 23 privacy guardrails, Phase 25 demo fallback, Phase 26 confidence tests.
 
 ### Parallel Work Ownership
 
-Part 2 owns enrichment, source provenance, entity resolution, and confidence scoring. It consumes `ExtractionHandoff` and produces `EvidenceBundle` from `lib/types/handoffs.ts`; it should not edit capture routes, the process route shell, action policy, board UI, or draft generation.
+Part 2 owns enrichment, source provenance, entity resolution, and confidence scoring. It consumes `ExtractionHandoff` and produces `EvidenceBundle` from `lib/types/handoffs.ts`; it should not edit capture routes, the process route shell, frontend components, action policy, board UI, or draft generation.
 
 Owned implementation paths:
 
 ```text
 app/api/enrich/cala/route.ts
 app/api/enrich/web/route.ts
-components/SourceRegister.tsx
-components/ConfidenceBreakdown.tsx
 lib/intelligence/enrichment.ts
 lib/intelligence/sourceConfidence.ts
 lib/intelligence/entityResolution.ts
@@ -79,6 +80,7 @@ Contract rules:
 
 - Import shared types from `lib/types/index.ts`.
 - Keep changes to `EvidenceBundle` additive unless Part 3 agrees.
+- Part 4 owns source register and confidence UI; Part 2 provides source and confidence data only.
 - Do not call Part 3 decisioning from enrichment; return the evidence bundle only.
 - Do not call capture or extraction implementation files directly; use the `ExtractionHandoff` contract.
 - Database work in this stream should be limited to `public_entity_context`, `source_records`, and `evidence_facts`.

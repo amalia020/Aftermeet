@@ -8,7 +8,8 @@ This document defines the independent implementation scope for the Capture and E
 
 ### Intended Audience
 
-- Engineer owning objective setup, capture screens, capture API routes, transcription, and LLM extraction.
+- Engineer owning objective data setup, capture API routes, transcription, and LLM extraction.
+- Frontend engineer consuming Part 1 contracts for mission and capture UI. See Part 4.
 - Engineer integrating the Part 2 enrichment handoff.
 - Reviewer validating privacy, typing, demo fallback, and test coverage.
 
@@ -18,8 +19,8 @@ Included:
 
 - Project foundation required by this workstream.
 - Core domain types used at the pipeline boundary.
-- User objective setup and mission mode.
-- Text capture, voice transcription, and card capture shell.
+- User objective data model, persistence, and API contract.
+- Text capture, voice transcription, and card capture API contract.
 - Synchronous process orchestration with streamed stage updates.
 - Claude-based conversation atom extraction.
 - Persistence for users, objectives, conversations, and conversation atoms.
@@ -29,6 +30,7 @@ Excluded:
 
 - Public context enrichment, Cala, Gemini web fallback, source confidence, and fact confidence. See Part 2.
 - Opportunity routing, action policy, drafts, decision trace, follow-up board, traction, and feedback learning. See Part 3.
+- User-visible frontend routes and components for mission setup, capture, and processing. See Part 4.
 - Production multi-tenant RLS. The MVP is single-tenant demo mode, with production RLS deferred.
 
 ### Definitions
@@ -45,23 +47,20 @@ Excluded:
 
 - Source spec: `docs/intelligence-layer-specs.md`
 - Parallel ownership map: `docs/intelligence-layer-parallel-work-ownership.md`
+- Frontend visualization SDD: `docs/intelligence-layer-part-4-frontend-visualization-sdd.md`
 - Shared contracts: `lib/types/index.ts`
 - Covered source sections: Project Summary, Product Philosophy, User Objective Model, Core Domain Model, Database Schema 6.1-6.5, Architecture ADR-001, ADR-002, File Structure, Pipeline steps 1-3, Phases 0-4, Phase 24.1-24.3, Phase 25, Phase 26 extraction tests.
 
 ### Parallel Work Ownership
 
-Part 1 owns capture, objective setup, transcription, extraction, and the process route shell. It must produce `ExtractionHandoff` from `lib/types/handoffs.ts` and should not implement enrichment, scoring, action policy, or draft generation.
+Part 1 owns capture APIs, objective data contracts, transcription, extraction, and the process route shell. It must produce `ExtractionHandoff` from `lib/types/handoffs.ts` and should not implement frontend components, enrichment, scoring, action policy, or draft generation.
 
 Owned implementation paths:
 
 ```text
-app/capture/*
+app/api/objectives/*
 app/api/capture/*
 app/api/intelligence/process/route.ts
-components/MissionSetup.tsx
-components/CaptureCard.tsx
-components/VoiceCapture.tsx
-components/CardScan.tsx
 lib/intelligence/extraction.ts
 lib/providers/whisper.ts
 ```
@@ -77,6 +76,7 @@ Contract rules:
 
 - Import shared types from `lib/types/index.ts`.
 - Keep changes to `ExtractionHandoff` additive unless Part 2 agrees.
+- Part 4 owns mission setup, capture, and processing UI; Part 1 exposes API contracts and stage events for those screens.
 - Part 2 should expose `enrichEvidence(...)`; Part 1 calls that service from the process route instead of editing Part 2 files.
 - Part 3 should expose `recommendNextAction(...)`; Part 1 calls that service from the process route instead of editing Part 3 files.
 - Database work in this stream should be limited to `users`, `user_objectives`, `contacts`, `conversations`, and `conversation_atoms`.
