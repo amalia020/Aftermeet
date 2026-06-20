@@ -1,3 +1,9 @@
+---
+noteId: "2b2641116c8a11f1bc4eed32644d11d4"
+tags: []
+
+---
+
 # AfterMeet Intelligence Layer Part 2 - Enrichment and Evidence SDD
 
 ## 1. Introduction

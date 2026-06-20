@@ -16,6 +16,7 @@ import type {
   CaptureAcceptedResponse,
   CardCaptureAcceptedResponse,
   ErrorResponse,
+  WebFallbackResponse,
   VoiceCaptureAcceptedResponse,
   WorkflowCaptureEnrichResponse,
   WorkflowCaptureWebFallbackResponse
@@ -288,7 +289,7 @@ describe("process and enrichment routes", () => {
       })
     );
 
-    const body = await json(response);
+    const body = await json<WebFallbackResponse>(response);
     expect(response.status).toBe(200);
     expect(body.available).toBe(true);
     expect(body.claims).toHaveLength(2);

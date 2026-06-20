@@ -1,3 +1,9 @@
+---
+noteId: "2b3646a06c8a11f1bc4eed32644d11d4"
+tags: []
+
+---
+
 # AfterMeet Intelligence Layer - Visualization Map
 
 ## Workstream Flow

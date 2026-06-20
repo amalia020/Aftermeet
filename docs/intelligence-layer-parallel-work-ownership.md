@@ -1,3 +1,9 @@
+---
+noteId: "2b272b706c8a11f1bc4eed32644d11d4"
+tags: []
+
+---
+
 # AfterMeet Intelligence Layer - Parallel Work Ownership
 
 ## Purpose

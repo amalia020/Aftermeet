@@ -1,37 +1,46 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type {
+  ActionRecommendation,
   Contact,
   Conversation,
   ConversationAtoms,
+  Draft,
   EvidenceBundle,
   EvidenceFact,
   ExtractionHandoff,
-  Id,
+  OpportunityRoute,
+  Outcome,
   PublicEntityContext,
   SourceRecord,
   User,
-  UserObjectiveProfile
+  UserObjectiveProfile,
 } from "@/lib/types";
 import { demoObjective, demoUser } from "@/lib/demo/fixtures";
 
-export interface ConversationAtomsRecord extends ConversationAtoms {
-  id: Id;
-  conversationId: Id;
+export interface StoredConversationAtoms extends ConversationAtoms {
+  id: string;
+  conversationId: string;
   createdAt: string;
 }
+
+export type ConversationAtomsRecord = StoredConversationAtoms;
 
 export interface LocalDatabase {
   users: User[];
   userObjectives: UserObjectiveProfile[];
   contacts: Contact[];
   conversations: Conversation[];
-  conversationAtoms: ConversationAtomsRecord[];
+  conversationAtoms: StoredConversationAtoms[];
   publicEntityContext: PublicEntityContext[];
   sourceRecords: SourceRecord[];
   evidenceFacts: EvidenceFact[];
   extractionHandoffs: ExtractionHandoff[];
   evidenceBundles: EvidenceBundle[];
+  opportunityRoutes: OpportunityRoute[];
+  actionRecommendations: ActionRecommendation[];
+  drafts: Draft[];
+  outcomes: Outcome[];
 }
 
 function createInitialDatabase(): LocalDatabase {
@@ -45,7 +54,11 @@ function createInitialDatabase(): LocalDatabase {
     sourceRecords: [],
     evidenceFacts: [],
     extractionHandoffs: [],
-    evidenceBundles: []
+    evidenceBundles: [],
+    opportunityRoutes: [],
+    actionRecommendations: [],
+    drafts: [],
+    outcomes: [],
   };
 }
 
@@ -54,20 +67,20 @@ function getDatabasePath(): string {
   return configuredPath || path.join(process.cwd(), ".local", "aftermeet-db.json");
 }
 
-async function ensureDatabaseFile(): Promise<void> {
+function ensureDatabaseFile(): void {
   const dbPath = getDatabasePath();
-  await mkdir(path.dirname(dbPath), { recursive: true });
+  mkdirSync(path.dirname(dbPath), { recursive: true });
 
   try {
-    await readFile(dbPath, "utf8");
+    readFileSync(dbPath, "utf8");
   } catch {
-    await writeFile(dbPath, `${JSON.stringify(createInitialDatabase(), null, 2)}\n`, "utf8");
+    writeFileSync(dbPath, `${JSON.stringify(createInitialDatabase(), null, 2)}\n`, "utf8");
   }
 }
 
-export async function readDatabase(): Promise<LocalDatabase> {
-  await ensureDatabaseFile();
-  const db = JSON.parse(await readFile(getDatabasePath(), "utf8")) as Partial<LocalDatabase>;
+export function readDatabase(): LocalDatabase {
+  ensureDatabaseFile();
+  const db = JSON.parse(readFileSync(getDatabasePath(), "utf8")) as Partial<LocalDatabase>;
   return {
     ...createInitialDatabase(),
     ...db,
@@ -80,22 +93,28 @@ export async function readDatabase(): Promise<LocalDatabase> {
     sourceRecords: db.sourceRecords ?? [],
     evidenceFacts: db.evidenceFacts ?? [],
     extractionHandoffs: db.extractionHandoffs ?? [],
-    evidenceBundles: db.evidenceBundles ?? []
+    evidenceBundles: db.evidenceBundles ?? [],
+    opportunityRoutes: db.opportunityRoutes ?? [],
+    actionRecommendations: db.actionRecommendations ?? [],
+    drafts: db.drafts ?? [],
+    outcomes: db.outcomes ?? [],
   };
 }
 
-export async function writeDatabase(db: LocalDatabase): Promise<void> {
-  await mkdir(path.dirname(getDatabasePath()), { recursive: true });
-  await writeFile(getDatabasePath(), `${JSON.stringify(db, null, 2)}\n`, "utf8");
+export function writeDatabase(db: LocalDatabase): void {
+  mkdirSync(path.dirname(getDatabasePath()), { recursive: true });
+  writeFileSync(getDatabasePath(), `${JSON.stringify(db, null, 2)}\n`, "utf8");
 }
 
-export async function updateDatabase<T>(mutate: (db: LocalDatabase) => T | Promise<T>): Promise<T> {
-  const db = await readDatabase();
-  const result = await mutate(db);
-  await writeDatabase(db);
+export function updateDatabase<T>(mutate: (db: LocalDatabase) => T): T {
+  const db = readDatabase();
+  const result = mutate(db);
+  writeDatabase(db);
   return result;
 }
 
-export async function resetLocalDatabase(): Promise<void> {
-  await writeDatabase(createInitialDatabase());
+export function resetLocalDatabase(): void {
+  writeDatabase(createInitialDatabase());
 }
+
+export const resetStore = resetLocalDatabase;

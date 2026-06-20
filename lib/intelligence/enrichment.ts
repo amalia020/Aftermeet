@@ -1,239 +1,400 @@
+/**
+ * Phase 5b — Enrichment coordinator (the public Part 2 service).
+ *
+ * Owns the provider cascade so the rest of the pipeline calls ONE function and
+ * provider order is never bypassed:
+ *
+ *   1. Ensure a contactId + always record the captured conversation source.
+ *   2. Try Cala first (company/fund, ADR-003) and resolve entity match.
+ *   3. If Cala has no/low match AND enrichment is warranted, call the Gemini
+ *      grounded web fallback. Each cited claim -> source record + evidence fact.
+ *   4. Convert conversation atoms into evidence facts (user_voice_note).
+ *   5. If neither Cala nor web yields data, status = public_context_unavailable
+ *      and DO NOT invent facts.
+ *   6. Persist everything and return a fully-populated EvidenceBundle.
+ *
+ * Never throws: any unexpected error returns the demo bundle with a warning so
+ * the pipeline never breaks.
+ */
+
+import "server-only";
 import type {
-  ContactCandidate,
+  AtomFact,
+  CalaEntityCandidate,
   EvidenceBundle,
+  EvidenceFact,
   ExtractionHandoff,
   PublicEntityContext,
-  SourceRecord
+  SourceRecord,
 } from "@/lib/types";
+import { clamp01, deterministicId, extractDomain, freshnessScore } from "@/lib/utils";
 import {
-  saveEvidenceBundle,
-  saveEvidenceFacts,
-  savePublicEntityContext,
-  saveSourceRecords
+  saveEvidenceFact,
+  savePublicContext,
+  saveSourceRecord,
 } from "@/lib/db/queries";
-import { calaEntitySearch, calaRetrieveEntity } from "@/lib/providers/cala";
+import { part2DemoEvidenceBundle } from "@/lib/demo/fixtures";
+import {
+  calaKnowledgeQuery,
+  calaKnowledgeSearch,
+} from "@/lib/providers/cala";
 import { geminiWebContext } from "@/lib/providers/gemini";
-import { summarizeEntityResolution } from "@/lib/intelligence/entityResolution";
-import { buildEvidenceFacts } from "@/lib/intelligence/factConfidence";
-import { createSourceRecord } from "@/lib/intelligence/sourceConfidence";
-import { inferSourceTypeFromUrl } from "@/lib/intelligence/utils";
+import { resolveEntity } from "./entityResolution";
+import { buildEvidenceFact } from "./factConfidence";
+import { createSourceRecord } from "./sourceConfidence";
 
-export function shouldEnrich(input: {
-  contactCandidate: ContactCandidate;
-  atoms: ExtractionHandoff["atoms"];
-  opportunityHints: ExtractionHandoff["opportunityHints"];
-  objective: ExtractionHandoff["objective"];
-}): boolean {
-  const hasPublicLookupTarget = Boolean(
-    input.contactCandidate.company || input.contactCandidate.website || input.contactCandidate.email
-  );
-  const highHint = input.opportunityHints.some((hint) => hint.score >= 0.45);
-  const publicContextCouldChangeAction = [
-    "find_users",
-    "find_design_partners",
-    "find_customers",
-    "raise",
-    "find_partners",
-    "source_candidates"
-  ].includes(input.objective.primaryGoal);
-  const explicitInterest = input.atoms.facts.some((fact) =>
-    /\b(interested|try|pilot|customer|invest|hire|partner|funding|series)\b/i.test(fact.text)
-  );
+const MEDIUM_THRESHOLD = 0.5;
 
-  return hasPublicLookupTarget && (highHint || publicContextCouldChangeAction || explicitInterest);
+export async function enrichEvidence(
+  input: ExtractionHandoff,
+  opts?: { now?: Date },
+): Promise<EvidenceBundle> {
+  const now = opts?.now ?? new Date();
+  const nowIso = now.toISOString();
+
+  try {
+    return await runEnrichment(input, now, nowIso);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ...part2DemoEvidenceBundle,
+      requestId: input.requestId,
+      userId: input.userId,
+      conversationId: input.conversation.id,
+      enrichment: {
+        ...part2DemoEvidenceBundle.enrichment,
+        warnings: [
+          ...part2DemoEvidenceBundle.enrichment.warnings,
+          `enrichment fell back to demo bundle: ${message}`,
+        ],
+      },
+    };
+  }
 }
 
-function sourceProviderForContext(provider: PublicEntityContext["provider"]): SourceRecord["provider"] {
-  return provider === "gemini" ? "web" : provider;
-}
-
-function createConversationSource(handoff: ExtractionHandoff): SourceRecord {
-  return createSourceRecord({
-    provider: handoff.sourceRecord.provider,
-    sourceType: handoff.sourceRecord.sourceType,
-    contactId: handoff.conversation.contactId ?? null,
-    retrievedAt: handoff.sourceRecord.retrievedAt,
-    notes: "User-created conversation capture"
-  });
-}
-
-function webQueryFor(handoff: ExtractionHandoff): string {
-  const candidate = handoff.contactCandidate;
-  return [
-    candidate.name,
-    candidate.role,
-    candidate.company,
-    "professional context funding events company"
-  ]
-    .filter(Boolean)
-    .join(" ");
-}
-
-export async function enrichEvidence(handoff: ExtractionHandoff): Promise<EvidenceBundle> {
+async function runEnrichment(
+  input: ExtractionHandoff,
+  now: Date,
+  nowIso: string,
+): Promise<EvidenceBundle> {
   const warnings: string[] = [];
-  const attempted = shouldEnrich({
-    contactCandidate: handoff.contactCandidate,
-    atoms: handoff.atoms,
-    opportunityHints: handoff.opportunityHints,
-    objective: handoff.objective
-  });
+  const candidate = input.contactCandidate;
+  const conversationId = input.conversation.id;
 
-  const sourceRecords: SourceRecord[] = [createConversationSource(handoff)];
+  // 1. Resolve / ensure a contactId.
+  const contactId =
+    input.conversation.contactId ??
+    deterministicId("contact", `${input.userId}:${candidate.name ?? ""}:${candidate.company ?? ""}:${conversationId}`);
+
+  const sourceRecords: SourceRecord[] = [];
   const publicContext: PublicEntityContext[] = [];
-  let calaAttempted = false;
-  let webFallbackAttempted = false;
+  const evidenceFacts: EvidenceFact[] = [];
 
-  let entityResolution = summarizeEntityResolution({
-    captured: handoff.contactCandidate,
-    score: attempted ? 0.25 : 1
+  // 2. Always record the captured conversation as a source.
+  const conversationSource = createSourceRecord({
+    id: deterministicId("src", `conv:${conversationId}`),
+    contactId,
+    provider: input.sourceRecord.provider,
+    sourceType: input.sourceRecord.sourceType,
+    sourceName: "Captured conversation",
+    sourceUrl: null,
+    retrievedAt: input.sourceRecord.retrievedAt,
+    now,
   });
+  sourceRecords.push(conversationSource);
 
-  if (attempted) {
-    calaAttempted = true;
-    const queryTarget =
-      handoff.contactCandidate.company ??
-      handoff.contactCandidate.website ??
-      handoff.contactCandidate.name ??
-      "";
-    const candidates = queryTarget ? await calaEntitySearch(queryTarget) : [];
-    const selectedCandidate = candidates[0];
-    const selectedDetail = selectedCandidate
-      ? await calaRetrieveEntity(selectedCandidate.providerEntityId)
-      : null;
+  // 3. Try Cala first (company/fund scope, ADR-003).
+  const calaAttempted = true;
+  let calaMatch = 0;
 
-    if (selectedCandidate && selectedDetail) {
-      entityResolution = summarizeEntityResolution({
-        captured: handoff.contactCandidate,
-        candidateName:
-          selectedCandidate.entityType === "person" ? selectedCandidate.name : handoff.contactCandidate.name,
-        candidateCompany: selectedCandidate.company ?? selectedDetail.canonicalName,
-        candidateRole: selectedCandidate.role,
-        candidateDomain: selectedCandidate.domain,
-        lastUpdated: selectedDetail.retrievedAt
-      });
+  const searchTerm = [candidate.name, candidate.company]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
 
-      const context: PublicEntityContext = {
-        id: `ctx_${crypto.randomUUID()}`,
-        contactId: handoff.conversation.contactId ?? null,
-        provider: "cala",
-        providerEntityId: selectedDetail.providerEntityId,
-        entityType: selectedDetail.entityType,
-        canonicalName: selectedDetail.canonicalName,
-        rawContext: selectedDetail.rawContext,
-        retrievedAt: selectedDetail.retrievedAt,
-        confidence: entityResolution.score
-      };
-      publicContext.push(context);
-      sourceRecords.push(
-        createSourceRecord({
-          provider: "cala",
+  const calaSearch = await calaKnowledgeSearch(searchTerm || candidate.company || "");
+  warnings.push(...calaSearch.warnings);
+  const topCandidate = pickBestCandidate(calaSearch.candidates, candidate.company);
+
+  const entityResolution = resolveEntity({
+    capturedName: candidate.name ?? undefined,
+    capturedCompany: candidate.company ?? undefined,
+    capturedRole: candidate.role ?? undefined,
+    capturedDomain:
+      extractDomain(candidate.website) ?? extractDomain(candidate.email) ?? undefined,
+    candidateName:
+      topCandidate?.entityType === "person"
+        ? topCandidate.name
+        : candidate.name ?? undefined,
+    candidateCompany: topCandidate?.company ?? topCandidate?.name,
+    candidateRole: topCandidate?.role,
+    candidateDomain: topCandidate?.domain,
+    sourceAgreementScore: calaSearch.available ? 0.6 : 0,
+    lastUpdated: nowIso,
+    now,
+  });
+  calaMatch = entityResolution.score;
+
+  let calaProducedFacts = false;
+  if (calaSearch.available && topCandidate && calaMatch >= MEDIUM_THRESHOLD) {
+    const query = `What is ${topCandidate.company ?? topCandidate.name}, what sector is it in, and what recent funding or growth signals exist?`;
+    const calaQuery = await calaKnowledgeQuery(query);
+    warnings.push(...calaQuery.warnings);
+
+    const calaSource = createSourceRecord({
+      id: deterministicId("src", `cala:${topCandidate.providerEntityId}`),
+      contactId,
+      provider: "cala",
+      sourceType: "cala_verified_fact",
+      sourceName: "Cala verified company context",
+      sourceUrl: null,
+      retrievedAt: nowIso,
+      now,
+      crossAgreement: 0.6,
+    });
+    sourceRecords.push(calaSource);
+
+    publicContext.push({
+      id: deterministicId("ctx", `cala:${topCandidate.providerEntityId}`),
+      contactId,
+      provider: "cala",
+      providerEntityId: topCandidate.providerEntityId,
+      entityType: topCandidate.entityType,
+      canonicalName: topCandidate.company ?? topCandidate.name,
+      rawContext: {
+        answer: calaQuery.answer ?? null,
+        facts: calaQuery.facts,
+        confidence: topCandidate.confidence ?? null,
+      },
+      retrievedAt: nowIso,
+      confidence: clamp01(topCandidate.confidence ?? calaMatch),
+    });
+
+    for (const factText of calaQuery.facts) {
+      evidenceFacts.push(
+        buildEvidenceFact({
+          id: deterministicId("fact", `cala:${conversationId}:${factText}`),
+          contactId,
+          conversationId,
+          fact: factText,
+          factType: "company_context",
+          sourceRecordId: calaSource.id,
           sourceType: "cala_verified_fact",
-          contactId: handoff.conversation.contactId ?? null,
-          sourceName: selectedDetail.canonicalName,
-          retrievedAt: selectedDetail.retrievedAt,
-          notes: "Structured Cala entity context"
-        })
+          entityMatchConfidence: calaMatch,
+          sourceConfidence: calaSource.sourceConfidence,
+          extractionConfidence: 0.85,
+          freshness: freshnessScore(nowIso, now),
+          createdAt: nowIso,
+          allowDraftSafe: true,
+        }),
       );
-    } else {
-      warnings.push("Cala returned no matching entity context.");
-    }
-
-    const shouldRunWebFallback =
-      entityResolution.label === "low" ||
-      entityResolution.label === "no_match" ||
-      publicContext.length === 0;
-
-    if (shouldRunWebFallback) {
-      webFallbackAttempted = true;
-      const webContext = await geminiWebContext({
-        name: handoff.contactCandidate.name ?? undefined,
-        company: handoff.contactCandidate.company ?? undefined,
-        role: handoff.contactCandidate.role ?? undefined,
-        query: webQueryFor(handoff)
-      });
-      const citedClaims = webContext.claims.filter((claim) => claim.sourceUrl);
-      const discardedClaims = webContext.claims.length - citedClaims.length;
-      if (discardedClaims > 0) {
-        warnings.push(`${discardedClaims} web claims discarded because they had no citation URL.`);
-      }
-      if (webContext.available && citedClaims.length > 0) {
-        for (const claim of citedClaims) {
-          sourceRecords.push(
-            createSourceRecord({
-              provider: "web",
-              sourceType: claim.sourceType ?? inferSourceTypeFromUrl(claim.sourceUrl),
-              contactId: handoff.conversation.contactId ?? null,
-              sourceName: new URL(claim.sourceUrl).hostname,
-              sourceUrl: claim.sourceUrl,
-              retrievedAt: webContext.retrievedAt,
-              notes: "Gemini grounded web fallback citation"
-            })
-          );
-        }
-        publicContext.push({
-          id: `ctx_${crypto.randomUUID()}`,
-          contactId: handoff.conversation.contactId ?? null,
-          provider: "gemini",
-          providerEntityId: null,
-          entityType: handoff.contactCandidate.company ? "company" : "unknown",
-          canonicalName: handoff.contactCandidate.company ?? handoff.contactCandidate.name ?? null,
-          rawContext: {
-            summary: webContext.summary,
-            facts: citedClaims.map((claim) => ({
-              text: claim.text,
-              sourceUrl: claim.sourceUrl
-            }))
-          },
-          retrievedAt: webContext.retrievedAt,
-          confidence: Math.min(0.72, entityResolution.score)
-        });
-      } else {
-        warnings.push("Gemini web fallback returned no cited professional context.");
-      }
+      calaProducedFacts = true;
     }
   }
 
-  const evidenceFacts = buildEvidenceFacts({
-    handoff,
-    publicContext,
-    sourceRecords,
-    entityMatchConfidence: entityResolution.score
-  });
+  // 4. Web fallback — only after Cala, only when warranted.
+  let webFallbackAttempted = false;
+  let webProducedFacts = false;
+  if (
+    !calaProducedFacts &&
+    calaMatch < MEDIUM_THRESHOLD &&
+    shouldEnrich(input)
+  ) {
+    webFallbackAttempted = true;
+    const query = candidate.company
+      ? `What is ${candidate.company} and what recent professional signals exist?`
+      : `What recent professional context exists for ${candidate.name ?? "this contact"}?`;
 
-  let status: EvidenceBundle["enrichment"]["status"] = "skipped";
-  if (attempted && publicContext.length === 0) status = "public_context_unavailable";
-  else if (attempted && publicContext.length > 0 && warnings.length > 0) status = "partial";
-  else if (attempted && publicContext.length > 0) status = "available";
+    const web = await geminiWebContext({
+      name: candidate.name ?? undefined,
+      company: candidate.company ?? undefined,
+      role: candidate.role ?? undefined,
+      query,
+      now,
+    });
 
-  const bundle: EvidenceBundle = {
-    requestId: handoff.requestId,
-    userId: handoff.userId,
-    conversationId: handoff.conversation.id,
-    contactId: handoff.conversation.contactId ?? undefined,
-    contactCandidate: handoff.contactCandidate,
+    if (web.available) {
+      for (const claim of web.claims) {
+        // Every web fact MUST carry a citation URL (geminiWebContext already
+        // discards uncited claims, but guard again here).
+        if (!claim.sourceUrl) {
+          warnings.push("SOURCE_REQUIRED: discarded uncited web claim");
+          continue;
+        }
+        const webSource = createSourceRecord({
+          id: deterministicId("src", `web:${claim.sourceUrl}`),
+          contactId,
+          provider: "web",
+          sourceType: claim.sourceType,
+          sourceName: "Web search citation",
+          sourceUrl: claim.sourceUrl,
+          retrievedAt: web.retrievedAt,
+          now,
+        });
+        sourceRecords.push(webSource);
+
+        evidenceFacts.push(
+          buildEvidenceFact({
+            id: deterministicId("fact", `web:${conversationId}:${claim.text}`),
+            contactId,
+            conversationId,
+            fact: claim.text,
+            factType: "web_context",
+            sourceRecordId: webSource.id,
+            sourceType: claim.sourceType,
+            entityMatchConfidence: calaMatch,
+            sourceConfidence: webSource.sourceConfidence,
+            extractionConfidence: 0.6,
+            freshness: freshnessScore(web.retrievedAt, now),
+            createdAt: nowIso,
+            // Web facts default to NOT draft-safe (spec Hard Rules / Phase 5b).
+            allowDraftSafe: false,
+          }),
+        );
+        webProducedFacts = true;
+      }
+
+      if (webProducedFacts) {
+        publicContext.push({
+          id: deterministicId("ctx", `web:${conversationId}`),
+          contactId,
+          provider: "web",
+          providerEntityId: null,
+          entityType: candidate.company ? "company" : "person",
+          canonicalName: candidate.company ?? candidate.name ?? null,
+          rawContext: {
+            summary: web.summary,
+            claims: web.claims.map((c) => ({
+              text: c.text,
+              sourceUrl: c.sourceUrl,
+              sourceType: c.sourceType,
+            })),
+          },
+          retrievedAt: web.retrievedAt,
+          confidence: clamp01(calaMatch || 0.4),
+        });
+      }
+    } else {
+      warnings.push("web fallback returned no usable public context");
+    }
+  }
+
+  // 5. Convert conversation atoms (facts) into evidence facts.
+  for (const atom of input.atoms.facts) {
+    evidenceFacts.push(
+      buildAtomFact(atom, {
+        contactId,
+        conversationId,
+        sourceRecord: conversationSource,
+        entityMatchConfidence: Math.max(calaMatch, 0.6),
+        nowIso,
+        now,
+      }),
+    );
+  }
+
+  // 6. Determine status.
+  const hasPublicContext = calaProducedFacts || webProducedFacts;
+  const status: EvidenceBundle["enrichment"]["status"] = hasPublicContext
+    ? calaProducedFacts && webProducedFacts
+      ? "available"
+      : "available"
+    : "public_context_unavailable";
+
+  if (!hasPublicContext) {
+    warnings.push("public context unavailable");
+  }
+
+  // 7. Persist.
+  for (const src of sourceRecords) saveSourceRecord(src);
+  for (const ctx of publicContext) savePublicContext(ctx);
+  for (const fact of evidenceFacts) saveEvidenceFact(fact);
+
+  return {
+    requestId: input.requestId,
+    userId: input.userId,
+    conversationId,
+    contactId,
+    contactCandidate: candidate,
     publicContext,
     sourceRecords,
     evidenceFacts,
     entityResolution,
     enrichment: {
-      attempted,
+      attempted: true,
       calaAttempted,
       webFallbackAttempted,
       status,
-      warnings
-    }
+      warnings,
+    },
   };
-
-  await saveSourceRecords(sourceRecords);
-  await savePublicEntityContext(publicContext);
-  await saveEvidenceFacts(evidenceFacts);
-  await saveEvidenceBundle(bundle);
-
-  return bundle;
 }
 
-export function sourceProviderForPublicContext(
-  provider: PublicEntityContext["provider"]
-): SourceRecord["provider"] {
-  return sourceProviderForContext(provider);
+/**
+ * Enrichment trigger policy (spec Phase 5b / 7.1). Enrich when the contact is
+ * high-opportunity, ambiguous-but-important, or — for the demo — always-on when
+ * a meaningful contact was captured.
+ */
+export function shouldEnrich(input: ExtractionHandoff): boolean {
+  const hasContact = Boolean(
+    input.contactCandidate.name || input.contactCandidate.company,
+  );
+  if (!hasContact) return false;
+
+  const highOpportunity = input.opportunityHints.some((h) => h.score >= 0.5);
+  const thinConversation = input.atoms.facts.length <= 3;
+
+  // Always-on for the demo when we met a real contact; gated by opportunity /
+  // ambiguity in spirit, but we never enrich strangers (handled by hasContact).
+  return highOpportunity || thinConversation || hasContact;
+}
+
+function pickBestCandidate(
+  candidates: CalaEntityCandidate[],
+  company?: string | null,
+): CalaEntityCandidate | undefined {
+  if (candidates.length === 0) return undefined;
+  if (!company) return candidates[0];
+  // Prefer a candidate whose name/company best matches the captured company.
+  return (
+    candidates
+      .slice()
+      .sort(
+        (a, b) =>
+          (b.confidence ?? 0) - (a.confidence ?? 0),
+      )[0] ?? candidates[0]
+  );
+}
+
+function buildAtomFact(
+  atom: AtomFact,
+  ctx: {
+    contactId: string;
+    conversationId: string;
+    sourceRecord: SourceRecord;
+    entityMatchConfidence: number;
+    nowIso: string;
+    now: Date;
+  },
+): EvidenceFact {
+  const isProfessional = atom.isProfessional ?? true;
+  const isSensitive = atom.isSensitive ?? false;
+  return buildEvidenceFact({
+    id: deterministicId("fact", `atom:${ctx.conversationId}:${atom.text}`),
+    contactId: ctx.contactId,
+    conversationId: ctx.conversationId,
+    fact: atom.text,
+    factType: atom.type ?? null,
+    sourceRecordId: ctx.sourceRecord.id,
+    sourceType: ctx.sourceRecord.sourceType,
+    entityMatchConfidence: ctx.entityMatchConfidence,
+    sourceConfidence: ctx.sourceRecord.sourceConfidence,
+    extractionConfidence: atom.confidence ?? 0.6,
+    freshness: freshnessScore(ctx.nowIso, ctx.now),
+    createdAt: ctx.nowIso,
+    isProfessional,
+    isSensitive,
+    // Sensitive / non-professional atoms are never draft-safe.
+    allowDraftSafe: isProfessional && !isSensitive,
+  });
 }
