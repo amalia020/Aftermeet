@@ -31,7 +31,7 @@ Included:
 Excluded:
 
 - Extraction, transcription, enrichment, scoring, action policy, and draft-generation algorithms.
-- Provider wrappers for Claude, OpenAI, Cala, Gemini, or Mollie.
+- Provider wrappers for Gemini, OpenAI, Cala, Gemini, or Mollie.
 - Database migrations and repository ownership.
 - Automatic outreach or message sending.
 

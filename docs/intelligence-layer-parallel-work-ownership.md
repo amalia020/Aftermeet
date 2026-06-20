@@ -66,10 +66,10 @@ lib/providers/whisper.ts
 Shared-with-care paths:
 
 ```text
-lib/providers/claude.ts
+lib/providers/gemini.ts
 ```
 
-Part 1 may create the low-level Claude JSON provider wrapper. Part 3 should put draft-specific prompt logic in `lib/intelligence/draftGeneration.ts`, not by changing extraction behavior in the provider wrapper.
+Part 1 may create the low-level Gemini JSON provider wrapper. Part 3 should put draft-specific prompt logic in `lib/intelligence/draftGeneration.ts`, not by changing extraction behavior in the provider wrapper.
 
 Tables owned:
 
@@ -247,7 +247,7 @@ Suggested names:
 | `app/api/intelligence/process/route.ts` | Part 1 owns shell; other parts expose callable services. |
 | `components/*` | Part 4 owns visual components; backend workstreams provide data only. |
 | `app/*` pages | Part 4 owns pages; backend workstreams own `app/api/*` routes. |
-| `lib/providers/claude.ts` | Provider wrapper only; prompts live in workstream files. |
+| `lib/providers/gemini.ts` | Provider wrapper only; prompts live in workstream files. |
 | Database migrations | Split by workstream and table ownership. |
 | Demo fixtures | Prefix fixture exports by workstream. |
 | Shared UI shell/navigation | Part 4 owns layout before feature pages branch off. |

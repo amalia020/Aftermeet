@@ -22,7 +22,7 @@ Included:
 - User objective data model, persistence, and API contract.
 - Text capture, voice transcription, and card capture API contract.
 - Synchronous process orchestration with streamed stage updates.
-- Claude-based conversation atom extraction.
+- Gemini-based conversation atom extraction.
 - Persistence for users, objectives, conversations, and conversation atoms.
 - Demo fallback fixtures for objective, capture, transcription, and extraction.
 
@@ -69,7 +69,7 @@ Shared-with-care paths:
 
 ```text
 lib/types/*
-lib/providers/claude.ts
+lib/providers/gemini.ts
 ```
 
 Contract rules:
@@ -102,7 +102,7 @@ flowchart LR
   Capture --> CaptureAPI[Capture API Routes]
   CaptureAPI --> Transcription[Whisper Provider]
   CaptureAPI --> Process[Process Orchestrator]
-  Process --> Extraction[Claude Extraction Service]
+  Process --> Extraction[Gemini Extraction Service]
   Process --> Store[(DB or Fixture Store)]
   Process --> Stream[Stage Event Stream]
   Extraction --> Handoff[Extraction Handoff]
@@ -121,7 +121,7 @@ flowchart LR
 | `/api/capture/card` | Accepts card image metadata or OCR fallback, starts processing. |
 | `/api/intelligence/process` | Synchronous orchestrator that streams stage events and emits the extraction handoff. |
 | `lib/providers/whisper.ts` | Server-only OpenAI audio transcription provider. |
-| `lib/providers/claude.ts` | Server-only Claude JSON extraction provider wrapper. |
+| `lib/providers/gemini.ts` | Server-only Gemini JSON extraction provider wrapper. |
 | `lib/intelligence/extraction.ts` | Prompting, parsing, validation, and fallback for conversation atoms. |
 | `lib/demo/fixtures.ts` | Saved extraction and transcription examples for demo reliability. |
 
@@ -130,7 +130,7 @@ flowchart LR
 | System | Used For | Boundary |
 | --- | --- | --- |
 | OpenAI transcription API | Voice note to text | Server-only provider, never called from browser. |
-| Claude API | Conversation atom extraction | Server-only provider, JSON-only response contract. |
+| Gemini API | Conversation atom extraction | Server-only provider, JSON-only response contract. |
 | Supabase/Postgres or local fixture store | Persistence | Repository layer hides storage choice from UI. |
 
 ## 3. Design Considerations
@@ -160,7 +160,7 @@ flowchart LR
 | React | Capture and mission UI | Framework can be Next.js App Router or Vite plus API server. |
 | Tailwind | UI styling | Use existing project convention once app exists. |
 | OpenAI API key | Voice transcription | Optional in demo mode. |
-| Anthropic API key | Extraction | Optional in demo mode with fixtures. |
+| Gemini API key | Extraction | Optional in demo mode with fixtures. |
 | Supabase/Postgres | Persistence | Local JSON is acceptable for time-boxed MVP if repository-shaped. |
 
 ### Risks and Mitigations
@@ -214,7 +214,7 @@ sequenceDiagram
   participant API as Capture API
   participant P as Process Orchestrator
   participant W as Whisper Provider
-  participant C as Claude Provider
+  participant C as Gemini Provider
   participant DB as Store
   participant E as Part 2 Enrichment
 
@@ -381,7 +381,7 @@ interface ExtractionHandoff {
   atoms: ConversationAtoms;
   opportunityHints: OpportunityHint[];
   extraction: {
-    provider: "claude" | "fixture";
+    provider: "gemini" | "fixture";
     model?: string;
     extractionConfidence: number;
     warnings: string[];
@@ -517,7 +517,7 @@ Part 1 may create a minimal `contacts` row when a contact candidate is strong en
 ### Error Handling and Retry
 
 - Provider calls use typed errors and timeouts.
-- Claude extraction retries once only for parse or schema failures.
+- Gemini extraction retries once only for parse or schema failures.
 - If extraction fails in demo mode, return a fixture labeled `Demo data`.
 - If extraction fails in live mode, mark conversation `failed` and preserve raw text for retry.
 
@@ -670,7 +670,7 @@ async function transcribeVoiceNote(input: {
 
 #### Responsibilities
 
-- Build Claude prompt with objective and conversation text.
+- Build Gemini prompt with objective and conversation text.
 - Request JSON only.
 - Validate extraction against schema.
 - Separate facts from uncertainties.
@@ -693,7 +693,7 @@ interface ConversationAtomsExtractionResult {
 
 #### Dependencies
 
-- Claude provider wrapper.
+- Gemini provider wrapper.
 - Extraction schema validator.
 - Demo fixture loader.
 
@@ -766,7 +766,7 @@ async function processConversation(input: ProcessConversationRequest): Promise<E
 | P1-REQ-004 Capture creates a conversation record. | Conversation repository | Integration test |
 | P1-REQ-005 Process route streams stage events. | Process orchestrator | Integration test checking event order |
 | P1-REQ-006 Extraction returns valid typed JSON. | `extraction.ts` | Unit tests and schema validation |
-| P1-REQ-007 Extraction never generates drafts. | Claude prompt, output schema | Unit test excludes draft fields |
+| P1-REQ-007 Extraction never generates drafts. | Gemini prompt, output schema | Unit test excludes draft fields |
 | P1-REQ-008 Uncertain details stay uncertain. | Extraction schema and parser | Messy input unit tests |
 | P1-REQ-009 Demo mode works without live keys. | Fixture loader | Env-based integration test |
 | P1-REQ-010 No provider key is exposed to browser. | Server-only provider modules | Static import review and build check |
@@ -785,7 +785,7 @@ interface ExtractionHandoff {
   atoms: ConversationAtoms;
   opportunityHints: OpportunityHint[];
   extraction: {
-    provider: "claude" | "fixture";
+    provider: "gemini" | "fixture";
     model?: string;
     extractionConfidence: number;
     warnings: string[];

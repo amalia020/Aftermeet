@@ -95,7 +95,7 @@ export interface ProcessConversationRequest {
 }
 
 export interface ExtractionProviderResult {
-  provider: "claude" | "fixture";
+  provider: "gemini" | "fixture";
   model?: string;
   extractionConfidence: NumericScore;
   warnings: string[];

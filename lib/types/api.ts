@@ -10,6 +10,7 @@ import type {
 import type { EvidenceBundle, RecommendationPackage } from "./handoffs";
 import type { ActionRecommendation, Draft, OpportunityRoute } from "./recommendation";
 import type { Outcome, OutcomeType, TractionSummary } from "./outcome";
+import type { UserObjectiveProfile, UserObjectiveProfileInput } from "./user";
 
 export interface TextCaptureRequest {
   userId: Id;
@@ -47,7 +48,34 @@ export interface CardCaptureAcceptedResponse extends CaptureAcceptedResponse {
   cardStatus: "captured" | "manual_fallback";
 }
 
-export interface ProcessConversationStreamEvent extends ProcessStageEvent {}
+export interface ActiveObjectiveRequest {
+  userId: Id;
+}
+
+export interface ActiveObjectiveResponse {
+  objective: UserObjectiveProfile | null;
+}
+
+export interface ObjectiveSaveRequest extends UserObjectiveProfileInput {
+  id?: Id;
+}
+
+export interface ObjectiveSaveResponse {
+  objective: UserObjectiveProfile;
+}
+
+export interface ProcessConversationRequestBody {
+  requestId: Id;
+  userId: Id;
+  conversationId?: Id;
+  captureType: CaptureType;
+  rawText?: string;
+  transcript?: string;
+  cardText?: string;
+  eventContext?: string;
+}
+
+export type ProcessConversationStreamEvent = ProcessStageEvent;
 
 export interface CalaEnrichmentRequest {
   userId: Id;
@@ -78,6 +106,7 @@ export interface WebFallbackRequest {
   query: string;
   calaAttempted: true;
   calaMatchConfidence?: number;
+  allowUncitedClaims?: boolean;
 }
 
 export interface WebFallbackResponse {
@@ -88,6 +117,70 @@ export interface WebFallbackResponse {
   warnings: string[];
 }
 
+export interface WorkflowObjectiveSeed {
+  role?: UserObjectiveProfile["role"];
+  primaryGoal?: UserObjectiveProfile["primaryGoal"];
+  activeGoals?: UserObjectiveProfile["activeGoals"];
+  secondaryGoals?: UserObjectiveProfile["secondaryGoals"];
+  eventContext?: string;
+  companyName?: string;
+  productDescription?: string;
+  targetCustomer?: string;
+  attentionBudgetToday?: number;
+  preferredTone?: UserObjectiveProfile["preferredTone"];
+  constraints?: string[];
+}
+
+export interface WorkflowCaptureEnrichRequest {
+  userId: Id;
+  rawText: string;
+  eventContext?: string;
+  capturedAt?: ISODateTime;
+  name?: string;
+  company?: string;
+  role?: string;
+  query?: string;
+  includeWebFallback?: boolean;
+  allowUncitedClaims?: boolean;
+  ensureObjective?: boolean;
+  objectiveSeed?: WorkflowObjectiveSeed;
+}
+
+export interface WorkflowCaptureEnrichResponse {
+  objective: {
+    existed: boolean;
+    created: boolean;
+    objectiveId: Id;
+  };
+  capture: CaptureAcceptedResponse;
+  cala: CalaEnrichmentResponse;
+  webFallback?: WebFallbackResponse;
+}
+
+export interface WorkflowCaptureWebFallbackRequest {
+  userId: Id;
+  rawText: string;
+  eventContext?: string;
+  capturedAt?: ISODateTime;
+  name?: string;
+  company?: string;
+  role?: string;
+  query?: string;
+  allowUncitedClaims?: boolean;
+  ensureObjective?: boolean;
+  objectiveSeed?: WorkflowObjectiveSeed;
+}
+
+export interface WorkflowCaptureWebFallbackResponse {
+  objective: {
+    existed: boolean;
+    created: boolean;
+    objectiveId: Id;
+  };
+  capture: CaptureAcceptedResponse;
+  webFallback: WebFallbackResponse;
+}
+
 export interface RecommendRequest {
   userId: Id;
   conversationId: Id;
@@ -95,7 +188,7 @@ export interface RecommendRequest {
   evidenceBundle?: EvidenceBundle;
 }
 
-export interface RecommendResponse extends RecommendationPackage {}
+export type RecommendResponse = RecommendationPackage;
 
 export interface DraftGenerateRequest {
   userId: Id;

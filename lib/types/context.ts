@@ -82,6 +82,8 @@ export interface WebContextResult {
   claims: WebContextClaim[];
   retrievedAt: ISODateTime;
   available: boolean;
+  warnings?: string[];
+  model?: string;
 }
 
 export interface CalaEntityCandidate {
