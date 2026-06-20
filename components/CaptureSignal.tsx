@@ -14,6 +14,7 @@ import type {
   ErrorResponse,
   WorkflowFullFlowResponse,
   WorkflowObjectiveSeed,
+  CaptureType,
 } from "@/lib/types";
 
 type SubmissionState = "idle" | "submitting" | "success" | "error";
@@ -36,6 +37,7 @@ export function CaptureSignal({
   viewModel: CaptureScreenViewModel;
 }) {
   const [note, setNote] = useState("");
+  const [captureMode, setCaptureMode] = useState<CaptureType>("text");
   const [state, setState] = useState<SubmissionState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<WorkflowFullFlowResponse | null>(null);
@@ -75,6 +77,7 @@ export function CaptureSignal({
           rawText,
           eventContext: viewModel.activeObjective.eventContext ?? undefined,
           objectiveSeed,
+          captureType: captureMode,
           status: "new",
         }),
       });
@@ -113,7 +116,13 @@ export function CaptureSignal({
     <section className="screen capture-screen">
       <div className="capture-topline">
         <span className="user-orb user-orb-large">AM</span>
-        <span className="capture-mode">Field note</span>
+        <span className="capture-mode">
+          {captureMode === "voice"
+            ? "Voice note"
+            : captureMode === "card"
+              ? "Card note"
+              : "Field note"}
+        </span>
       </div>
       <form className="capture-composer" onSubmit={handleSubmit}>
         <div>
@@ -124,22 +133,34 @@ export function CaptureSignal({
           aria-label="Relationship note"
           disabled={isSubmitting}
           onChange={(event) => setNote(event.target.value)}
-          placeholder="Met Elena after the AI infra panel. She is scaling distributed systems, open to technical conversations..."
+          placeholder={
+            captureMode === "card"
+              ? "Paste the card text plus any meeting context: name, role, company, what you discussed..."
+              : captureMode === "voice"
+                ? "Paste or dictate the voice note transcript from the conversation..."
+                : "Met Elena after the AI infra panel. She is scaling distributed systems, open to technical conversations..."
+          }
           value={note}
         />
         <div className="capture-actions">
           <button
             aria-label="Record voice note"
-            className="round-tool"
+            className={`round-tool ${captureMode === "voice" ? "is-active" : ""}`}
             disabled={isSubmitting}
+            onClick={() =>
+              setCaptureMode((mode) => (mode === "voice" ? "text" : "voice"))
+            }
             type="button"
           >
             <Mic size={24} />
           </button>
           <button
             aria-label="Scan card"
-            className="round-tool"
+            className={`round-tool ${captureMode === "card" ? "is-active" : ""}`}
             disabled={isSubmitting}
+            onClick={() =>
+              setCaptureMode((mode) => (mode === "card" ? "text" : "card"))
+            }
             type="button"
           >
             <ScanLine size={23} />

@@ -1,11 +1,12 @@
+import Link from "next/link";
 import { ArrowUpRight, GitBranch, SlidersHorizontal } from "lucide-react";
-import type { MissionRadarViewModel } from "@/lib/frontend/mockData";
+import type { MissionRadarViewModel } from "@/lib/frontend/viewModels";
 
 export function MissionRadar({ radar }: { radar: MissionRadarViewModel }) {
   return (
     <section className="screen radar-screen">
       <div className="screen-kicker">Mission radar</div>
-      <h1>Recruit Core Talent</h1>
+      <h1>{radar.missionTitle}</h1>
       <p className="screen-intro">
         Calibrated by mission fit and timing pressure. High-right means action earns attention today.
       </p>
@@ -36,15 +37,27 @@ export function MissionRadar({ radar }: { radar: MissionRadarViewModel }) {
             <SlidersHorizontal size={17} />
             <span>Signal ledger</span>
           </div>
-          {radar.nodes.map((node) => (
-            <article className="ledger-row" key={node.id}>
-              <div>
-                <strong>{node.name}</strong>
-                <span>{node.note}</span>
-              </div>
-              <ArrowUpRight size={16} />
-            </article>
-          ))}
+          {radar.nodes.map((node) => {
+            const content = (
+              <>
+                <div>
+                  <strong>{node.name}</strong>
+                  <span>{node.note}</span>
+                </div>
+                <ArrowUpRight size={16} />
+              </>
+            );
+
+            return node.href ? (
+              <Link className="ledger-row" href={node.href} key={node.id}>
+                {content}
+              </Link>
+            ) : (
+              <article className="ledger-row" key={node.id}>
+                {content}
+              </article>
+            );
+          })}
         </aside>
       </div>
 

@@ -8,9 +8,10 @@ import {
   Radar,
   RefreshCcw,
   Search,
+  Target,
 } from "lucide-react";
 
-type NavKey = "brief" | "radar" | "capture" | "board" | "loops";
+type NavKey = "brief" | "radar" | "capture" | "board" | "loops" | "mission";
 
 interface AppShellProps {
   active: NavKey;
@@ -38,9 +39,15 @@ export function AppShell({ active, children }: AppShellProps) {
           <Image alt="" className="brand-icon" priority src={appIcon} />
           <span>Aftermeet</span>
         </Link>
-        <button aria-label="Search relationships" className="icon-button">
-          <Search size={22} />
-        </button>
+        <div className="topbar-actions">
+          <Link aria-label="Edit mission" className="topbar-link" href="/objective">
+            <Target size={19} />
+            <span>Mission</span>
+          </Link>
+          <button aria-label="Search relationships" className="icon-button">
+            <Search size={22} />
+          </button>
+        </div>
       </header>
       <main className="app-main">{children}</main>
       <nav aria-label="Primary navigation" className="bottom-nav">

@@ -1,20 +1,20 @@
 import Link from "next/link";
 import { ArrowRight, CalendarClock, Radio, Search, TrendingDown } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
-import type { DailyBriefViewModel } from "@/lib/frontend/mockData";
+import type { DailyBriefViewModel } from "@/lib/frontend/viewModels";
 
 export function DailyBrief({ brief }: { brief: DailyBriefViewModel }) {
   return (
     <section className="screen daily-brief">
       <div className="screen-kicker">Today&apos;s relationship brief</div>
       <div className="mission-title-block">
-        <h1>{brief.activeObjective.companyName ? "Recruit Core Talent" : "Active Mission"}</h1>
-        <p>Active mission context</p>
+        <h1>{brief.missionTitle}</h1>
+        <p>{brief.missionContext}</p>
       </div>
 
       <div className="brief-hero">
         <div>
-          <span className="brief-date">Saturday, June 20</span>
+          <span className="brief-date">{brief.currentDate}</span>
           <h2>{brief.headline}</h2>
         </div>
         <Link className="capture-fab" href="/capture">
@@ -62,20 +62,28 @@ export function DailyBrief({ brief }: { brief: DailyBriefViewModel }) {
         })}
       </div>
 
-      <article className="attention-card cooling-card">
-        <div className="attention-label">
-          <TrendingDown size={18} />
-          <span>Cooling relationship</span>
-        </div>
-        <div className="attention-person">
-          <Avatar initials={brief.cooling.initials} tone="warm" />
-          <div>
-            <h3>{brief.cooling.name}</h3>
-            <p>{brief.cooling.reason}</p>
+      {brief.cooling ? (
+        <article className="attention-card cooling-card">
+          <div className="attention-label">
+            <TrendingDown size={18} />
+            <span>Cooling relationship</span>
           </div>
-        </div>
-        <button className="ghost-action">Re-engage</button>
-      </article>
+          <div className="attention-person">
+            <Avatar initials={brief.cooling.initials} tone="warm" />
+            <div>
+              <h3>{brief.cooling.name}</h3>
+              <p>{brief.cooling.reason}</p>
+            </div>
+          </div>
+          {brief.cooling.href ? (
+            <Link className="ghost-action" href={brief.cooling.href}>
+              Re-engage
+            </Link>
+          ) : (
+            <button className="ghost-action">Re-engage</button>
+          )}
+        </article>
+      ) : null}
 
       <article className="attention-card gap-card">
         <div className="attention-label">

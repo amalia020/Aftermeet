@@ -1,3 +1,7 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 import {
   Ban,
   Briefcase,
@@ -6,11 +10,42 @@ import {
   Handshake,
 } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
-import type { OutcomeLoopViewModel } from "@/lib/frontend/mockData";
+import type { OutcomeLoopViewModel } from "@/lib/frontend/viewModels";
+import type { OutcomeCreateResponse, TractionSummary } from "@/lib/types";
 
 const optionIcons = [CheckCircle2, CalendarCheck, Handshake, Briefcase, Ban, Ban];
 
 export function OutcomeLoop({ loop }: { loop: OutcomeLoopViewModel }) {
+  const router = useRouter();
+  const [summary, setSummary] = useState<TractionSummary>(loop.summary);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const recordOutcome = async (option: OutcomeLoopViewModel["options"][number]) => {
+    if (!loop.target) return;
+    setBusyId(option.id);
+    try {
+      const response = await fetch("/api/outcomes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: loop.target.userId,
+          contactId: loop.target.contactId,
+          recommendationId: loop.target.recommendationId,
+          outcomeType: option.outcomeType,
+        }),
+      });
+      if (response.ok) {
+        const payload = (await response.json()) as OutcomeCreateResponse;
+        setSummary(payload.updatedTraction);
+        setSelectedId(option.id);
+        router.refresh();
+      }
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <section className="screen loop-screen">
       <div className="loop-hero">
@@ -22,10 +57,16 @@ export function OutcomeLoop({ loop }: { loop: OutcomeLoopViewModel }) {
       <div className="outcome-options">
         {loop.options.map((option, index) => {
           const Icon = optionIcons[index] ?? CheckCircle2;
+          const selected = selectedId === option.id;
           return (
-            <button className={`outcome-option outcome-${option.kind}`} key={option.id}>
-              <Icon size={30} />
-              <span>{option.label}</span>
+            <button
+              className={`outcome-option outcome-${option.kind}`}
+              disabled={!loop.target || busyId !== null}
+              key={option.id}
+              onClick={() => recordOutcome(option)}
+            >
+              {selected ? <CheckCircle2 size={30} /> : <Icon size={30} />}
+              <span>{selected ? "Logged" : option.label}</span>
             </button>
           );
         })}
@@ -33,19 +74,32 @@ export function OutcomeLoop({ loop }: { loop: OutcomeLoopViewModel }) {
 
       <div className="traction-strip">
         <div>
-          <strong>{loop.summary.repliesReceived}</strong>
+          <strong>{summary.repliesReceived}</strong>
           <span>Replies</span>
         </div>
         <div>
-          <strong>{loop.summary.bookedMeetings}</strong>
+          <strong>{summary.bookedMeetings}</strong>
           <span>Booked</span>
         </div>
         <div>
-          <strong>{loop.summary.actionsCompleted}</strong>
+          <strong>{summary.actionsCompleted}</strong>
           <span>Moves logged</span>
         </div>
       </div>
-      <button className="skip-button">Skip for now</button>
+      <button
+        className="skip-button"
+        disabled={!loop.target || busyId !== null}
+        onClick={() =>
+          recordOutcome({
+            id: "skip",
+            label: "Skip",
+            kind: "neutral",
+            outcomeType: "snoozed",
+          })
+        }
+      >
+        Skip for now
+      </button>
     </section>
   );
 }
