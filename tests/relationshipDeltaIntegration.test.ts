@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import "./helpers";
+import { json } from "./helpers";
+import { POST as postOutcome } from "@/app/api/outcomes/route";
 import {
   DEMO_CONTACT_ID,
   DEMO_CONVERSATION_ID,
@@ -20,7 +21,7 @@ import {
   getPersonIntelligenceViewModel,
   getRelationshipBoardViewModel
 } from "@/lib/frontend/viewModels";
-import type { ActionRecommendation, Contact, EvidenceBundle } from "@/lib/types";
+import type { ActionRecommendation, Contact, EvidenceBundle, OutcomeCreateResponse } from "@/lib/types";
 
 const generatedAt = "2026-06-20T10:30:00.000Z";
 
@@ -100,6 +101,41 @@ describe("Part 5 stored adapter", () => {
 
     expect(moves[0].recommendedAction).toBe("confirm_details");
     expect(moves[0].risks).toContain("Identity or evidence is uncertain.");
+  });
+
+  it("clears confirm-first moves after details are confirmed", async () => {
+    saveDemoRelationship({
+      bundle: {
+        entityResolution: {
+          ...part2DemoEvidenceBundle.entityResolution,
+          score: 0.32,
+          label: "low",
+          needsUserConfirmation: true,
+          reasons: ["Only first name was captured."]
+        }
+      }
+    });
+
+    expect(selectStoredDailyMoves({ userId: DEMO_USER_ID, generatedAt })[0].recommendedAction)
+      .toBe("confirm_details");
+
+    const response = await postOutcome(
+      new Request("http://test/api/outcomes", {
+        method: "POST",
+        body: JSON.stringify({
+          userId: DEMO_USER_ID,
+          contactId: DEMO_CONTACT_ID,
+          recommendationId: part3DemoRecommendationPackage.recommendation.id,
+          outcomeType: "details_confirmed"
+        })
+      })
+    );
+    const body = await json<OutcomeCreateResponse>(response);
+
+    expect(response.status).toBe(201);
+    expect(body.outcome.outcomeType).toBe("details_confirmed");
+    expect(body.updatedRecommendation?.status).toBe("overridden");
+    expect(selectStoredDailyMoves({ userId: DEMO_USER_ID, generatedAt })).toHaveLength(0);
   });
 });
 

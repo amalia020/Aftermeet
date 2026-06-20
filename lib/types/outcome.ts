@@ -8,6 +8,7 @@ export type OutcomeType =
   | "wtp"
   | "ignored"
   | "snoozed"
+  | "details_confirmed"
   | "marked_not_relevant"
   | "manual_override";
 

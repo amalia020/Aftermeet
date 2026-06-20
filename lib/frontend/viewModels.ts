@@ -87,7 +87,7 @@ export interface MissionRadarViewModel {
   objective: UserObjectiveProfile;
   missionTitle: string;
   nodes: RadarNode[];
-  bridges: { from: string; to: string; label: string }[];
+  bridges: { id: string; from: string; to: string; label: string }[];
 }
 
 export interface PersonIntelligenceViewModel extends PersonViewModel {
@@ -115,6 +115,7 @@ export interface PersonIntelligenceViewModel extends PersonViewModel {
   recommendation: {
     id?: Id;
     contactId?: Id;
+    actionKey?: DailyMoveDecision["recommendedAction"];
     title: string;
     reason: string;
     avoid: string;
@@ -511,8 +512,9 @@ export function getMissionRadarViewModel(userId = DEMO_USER_ID): MissionRadarVie
         move.scoreBreakdown.missionImpact >= 0.55,
     )
     .slice(0, 3)
-    .map((move) => {
+    .map((move, index) => {
       return {
+        id: `${move.relationshipId}-bridge-${index}`,
         from: move.contactName ?? "contact",
         to: "mission gap",
         label: relationshipActionLabel(move.recommendedAction),
@@ -525,7 +527,7 @@ export function getMissionRadarViewModel(userId = DEMO_USER_ID): MissionRadarVie
     nodes,
     bridges: bridges.length
       ? bridges
-      : [{ from: "daily brief", to: "mission gap", label: "next relationship signal" }],
+      : [{ id: "daily-brief-mission-gap", from: "daily brief", to: "mission gap", label: "next relationship signal" }],
   };
 }
 
@@ -746,6 +748,7 @@ export function getPersonIntelligenceViewModel(
     recommendation: {
       id: rec?.id,
       contactId: contact.id,
+      actionKey: move?.recommendedAction ?? (rec?.recommendedAction === "CONFIRM_DETAILS" ? "confirm_details" : undefined),
       title: move
         ? `Best move today: ${relationshipActionLabel(move.recommendedAction).toLowerCase()}`
         : rec

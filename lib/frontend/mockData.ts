@@ -124,7 +124,7 @@ export interface RadarNode {
 export interface MissionRadarViewModel {
   objective: typeof objective;
   nodes: RadarNode[];
-  bridges: { from: string; to: string; label: string }[];
+  bridges: { id: string; from: string; to: string; label: string }[];
 }
 
 export const missionRadar: MissionRadarViewModel = {
@@ -137,8 +137,8 @@ export const missionRadar: MissionRadarViewModel = {
     { id: "gap", name: "Infra gap", initials: "IG", x: 58, y: 20, state: "gap", note: "Missing coverage" },
   ],
   bridges: [
-    { from: "sarah", to: "gap", label: "platform lead" },
-    { from: "elena", to: "gap", label: "technical trust" },
+    { id: "sarah-gap-platform-lead", from: "sarah", to: "gap", label: "platform lead" },
+    { id: "elena-gap-technical-trust", from: "elena", to: "gap", label: "technical trust" },
   ],
 };
 

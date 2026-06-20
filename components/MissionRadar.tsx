@@ -67,7 +67,7 @@ export function MissionRadar({ radar }: { radar: MissionRadarViewModel }) {
           <span>Possible bridges</span>
         </div>
         {radar.bridges.map((bridge) => (
-          <article className="bridge-card" key={`${bridge.from}-${bridge.to}`}>
+          <article className="bridge-card" key={bridge.id}>
             <span>{bridge.from}</span>
             <strong>{bridge.label}</strong>
             <span>{bridge.to}</span>

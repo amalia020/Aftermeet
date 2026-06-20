@@ -23,11 +23,16 @@ function percent(score: number): string {
   return `${Math.round(score * 100)}%`;
 }
 
+function listItemKey(value: string, index: number): string {
+  return `${index}-${value}`;
+}
+
 export function PersonIntelligence({ person }: { person: PersonIntelligenceViewModel }) {
   const router = useRouter();
   const [draft, setDraft] = useState(person.recommendation.draft);
   const [busyOutcome, setBusyOutcome] = useState<OutcomeType | null>(null);
   const [savedOutcome, setSavedOutcome] = useState<OutcomeType | null>(null);
+  const needsDetailsConfirmation = person.recommendation.actionKey === "confirm_details";
 
   const recordOutcome = async (outcomeType: OutcomeType) => {
     if (!person.recommendation.contactId) return;
@@ -91,8 +96,8 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
         <p>{person.recommendation.reason}</p>
         {person.recommendation.whyNow.length ? (
           <ul className="policy-list">
-            {person.recommendation.whyNow.map((reason) => (
-              <li key={reason}>{reason}</li>
+            {person.recommendation.whyNow.map((reason, index) => (
+              <li key={listItemKey(reason, index)}>{reason}</li>
             ))}
           </ul>
         ) : null}
@@ -123,8 +128,8 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
         </div>
         {person.evidence.facts.length ? (
           <ul className="evidence-list">
-            {person.evidence.facts.map((fact) => (
-              <li key={fact}>{fact}</li>
+            {person.evidence.facts.map((fact, index) => (
+              <li key={listItemKey(fact, index)}>{fact}</li>
             ))}
           </ul>
         ) : (
@@ -142,8 +147,8 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
             <strong>Safe facts</strong>
             {person.recommendation.safeFacts.length ? (
               <ul className="evidence-list">
-                {person.recommendation.safeFacts.map((fact) => (
-                  <li key={fact}>{fact}</li>
+                {person.recommendation.safeFacts.map((fact, index) => (
+                  <li key={listItemKey(fact, index)}>{fact}</li>
                 ))}
               </ul>
             ) : (
@@ -154,8 +159,8 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
             <strong>Blocked facts</strong>
             {person.recommendation.blockedFacts.length ? (
               <ul className="evidence-list">
-                {person.recommendation.blockedFacts.map((fact) => (
-                  <li key={fact}>{fact}</li>
+                {person.recommendation.blockedFacts.map((fact, index) => (
+                  <li key={listItemKey(fact, index)}>{fact}</li>
                 ))}
               </ul>
             ) : (
@@ -189,14 +194,25 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
       </div>
 
       <div className="manual-actions">
-        <button
-          className="primary-action"
-          disabled={busyOutcome !== null}
-          onClick={() => recordOutcome("sent")}
-        >
-          {savedOutcome === "sent" ? <Check size={17} /> : <Send size={17} />}
-          {savedOutcome === "sent" ? "Marked sent" : "Send manually"}
-        </button>
+        {needsDetailsConfirmation ? (
+          <button
+            className="primary-action"
+            disabled={busyOutcome !== null}
+            onClick={() => recordOutcome("details_confirmed")}
+          >
+            <Check size={17} />
+            {savedOutcome === "details_confirmed" ? "Details confirmed" : "Confirm details"}
+          </button>
+        ) : (
+          <button
+            className="primary-action"
+            disabled={busyOutcome !== null}
+            onClick={() => recordOutcome("sent")}
+          >
+            {savedOutcome === "sent" ? <Check size={17} /> : <Send size={17} />}
+            {savedOutcome === "sent" ? "Marked sent" : "Send manually"}
+          </button>
+        )}
         <button
           className="secondary-action"
           disabled={busyOutcome !== null}

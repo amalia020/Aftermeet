@@ -974,6 +974,7 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
             "wtp",
             "ignored",
             "snoozed",
+            "details_confirmed",
             "marked_not_relevant",
             "manual_override"
           ]

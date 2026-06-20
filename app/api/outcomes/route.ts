@@ -43,6 +43,7 @@ const VALID_OUTCOME_TYPES: ReadonlySet<OutcomeType> = new Set([
   "wtp",
   "ignored",
   "snoozed",
+  "details_confirmed",
   "marked_not_relevant",
   "manual_override",
 ]);
@@ -68,6 +69,8 @@ function statusForOutcome(outcomeType: OutcomeType): ActionRecommendationStatus 
       return "sent";
     case "snoozed":
       return "snoozed";
+    case "details_confirmed":
+      return "overridden";
     case "ignored":
     case "marked_not_relevant":
       return "archived";
