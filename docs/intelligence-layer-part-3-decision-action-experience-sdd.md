@@ -85,7 +85,7 @@ Shared-with-care paths:
 
 ```text
 lib/types/*
-lib/providers/claude.ts
+lib/providers/gemini.ts
 ```
 
 Contract rules:
@@ -94,7 +94,7 @@ Contract rules:
 - Keep changes to `RecommendationPackage` additive unless the product UI or process route owner agrees.
 - Do not call Part 2 provider files directly; consume `EvidenceBundle`.
 - Part 4 owns all components and app pages; Part 3 provides API responses and typed package data only.
-- Draft-specific Claude prompts belong in `lib/intelligence/draftGeneration.ts`, not in the low-level provider wrapper.
+- Draft-specific Gemini prompts belong in `lib/intelligence/draftGeneration.ts`, not in the low-level provider wrapper.
 - Database work in this stream should be limited to `opportunity_routes`, `action_recommendations`, `drafts`, and `outcomes`.
 
 ## 2. System Overview
@@ -153,7 +153,7 @@ flowchart LR
 
 | System | Used For | Boundary |
 | --- | --- | --- |
-| Claude API | Draft generation if live mode is enabled | Server-only, after action selection and fact gate. |
+| Gemini API | Draft generation if live mode is enabled | Server-only, after action selection and fact gate. |
 | Mollie payment link | WTP signal in traction view | Optional, only if provided by env. |
 | Supabase/Postgres or fixture store | Persist routes, recommendations, drafts, outcomes | Repository layer hides storage choice. |
 
@@ -184,7 +184,7 @@ flowchart LR
 | --- | --- | --- |
 | Evidence bundle from Part 2 | Fact and confidence input | Stable contract required. |
 | Objective profile from Part 1 | Goal-conditioned scoring | Included in upstream handoff or loaded by repository. |
-| `ANTHROPIC_API_KEY` | Draft generation | Optional in demo mode. |
+| `GEMINI_API_KEY` | Draft generation | Optional in demo mode. |
 | `MOLLIE_PAYMENT_LINK` | WTP signal | Optional. |
 | TypeScript | Deterministic scoring contracts | All formulas should be unit tested. |
 
@@ -203,7 +203,7 @@ flowchart LR
 
 ### Selected Strategy
 
-Use a deterministic-first decision engine with a narrow LLM surface for final draft wording only. The engine consumes facts and scores, computes routes and policy decisions in code, creates an explainable trace, then optionally asks Claude to write a short editable draft using only approved facts.
+Use a deterministic-first decision engine with a narrow LLM surface for final draft wording only. The engine consumes facts and scores, computes routes and policy decisions in code, creates an explainable trace, then optionally asks Gemini to write a short editable draft using only approved facts.
 
 ### Rationale
 
@@ -848,7 +848,7 @@ async function generateDraft(input: {
 
 - Evidence facts from Part 2.
 - Action recommendation.
-- Claude provider or demo fixture.
+- Gemini provider or demo fixture.
 
 #### Error Handling
 

@@ -613,7 +613,7 @@ Use:
 * Tailwind
 * Next.js App Router or Vite + API server
 * Supabase/Postgres if possible
-* Claude API for extraction and drafting
+* Gemini API for extraction and drafting
 * Cala API for structured, verified public entity context
 * Gemini API (grounded with Google Search) for unstructured public context when Cala has no match
 * OpenAI Whisper (audio transcription API) for voice capture/transcription
@@ -623,7 +623,7 @@ Use:
 ## 7.2 Hard Rules
 
 * No API keys in frontend.
-* All Cala/Claude/Gemini/OpenAI calls go through server endpoints.
+* All Cala/Gemini/OpenAI calls go through server endpoints.
 * Do not scrape LinkedIn.
 * Web search is a query against a search API, never a scraper. Do not crawl, paginate, or harvest profiles.
 * Web search enrichment runs only as a fallback when Cala has no match, and only for contacts the user actually met.
@@ -768,9 +768,8 @@ Use this structure.
     decisionTrace.ts
     feedbackLearning.ts
   /providers
-    claude.ts
-    cala.ts
     gemini.ts
+    cala.ts
     whisper.ts
     mollie.ts
   /db
@@ -854,7 +853,6 @@ Set up the app, environment, routing, and project conventions.
 ## Environment Variables
 
 ```text
-ANTHROPIC_API_KEY=
 CALA_API_KEY=
 GEMINI_API_KEY=
 OPENAI_API_KEY=
@@ -1149,7 +1147,7 @@ export interface ConversationAtomsExtractionResult {
 }
 ```
 
-## Claude Prompt
+## Gemini Prompt
 
 System:
 
@@ -2525,7 +2523,7 @@ Demo data
 
 * App works without Cala key.
 * App works without Gemini key (skips web fallback).
-* App works without Claude key using saved examples.
+* App works without Gemini key using saved examples.
 * App works without OpenAI/Whisper using text input.
 * Live mode preferred if keys available.
 
