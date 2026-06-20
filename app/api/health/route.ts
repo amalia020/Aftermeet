@@ -8,6 +8,9 @@ export async function GET() {
     status: "ok",
     service: "aftermeet",
     demoMode: runtimeConfig.demoMode,
+    auth: runtimeConfig.providerAvailability.supabase ? "supabase" : "demo",
+    storage: "local-json",
+    supabaseSchema: "supabase/schema.sql",
     providers: runtimeConfig.providerAvailability,
     timestamp: new Date().toISOString(),
   });

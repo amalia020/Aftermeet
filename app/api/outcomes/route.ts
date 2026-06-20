@@ -9,6 +9,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { resolveRequestUserId } from "@/lib/auth/request";
 import {
   DEMO_USER_ID,
   getContact,
@@ -129,7 +130,17 @@ function toSummaries(outcomes: Outcome[]): OutcomeSummary[] {
 }
 
 export async function GET() {
-  const outcomes = listOutcomes(DEMO_USER_ID);
+  let userId: string;
+  try {
+    userId = await resolveRequestUserId(DEMO_USER_ID);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "User session is required.";
+    return NextResponse.json<ErrorResponse>(
+      { error: "UNAUTHORIZED", message },
+      { status: 401 },
+    );
+  }
+  const outcomes = listOutcomes(userId);
   const traction = computeTraction(toSummaries(outcomes));
   return NextResponse.json<TractionSummary>(traction, { status: 200 });
 }
@@ -158,7 +169,16 @@ export async function POST(request: Request) {
     );
   }
 
-  const userId = body.userId ?? DEMO_USER_ID;
+  let userId: string;
+  try {
+    userId = await resolveRequestUserId(body.userId ?? DEMO_USER_ID);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "User session is required.";
+    return NextResponse.json<ErrorResponse>(
+      { error: "UNAUTHORIZED", message },
+      { status: 401 },
+    );
+  }
 
   // Contact must be accessible (best-effort in the single-tenant demo store).
   const contact = getContact(body.contactId);

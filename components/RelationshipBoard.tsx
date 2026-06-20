@@ -67,10 +67,10 @@ export function RelationshipBoard({ board }: { board: RelationshipBoardViewModel
 
   return (
     <section className="screen board-screen">
-      <div className="screen-kicker">Relationship board</div>
-      <h1>Strategic queue</h1>
+      <div className="screen-kicker">People</div>
+      <h1>Relationship queue</h1>
       <p className="screen-intro">
-        Organized by timing and mission relevance, so the next move does not fade.
+        Organized by timing and relevance, so the next move does not fade.
       </p>
 
       {board.sections.map((section) => {

@@ -1,4 +1,5 @@
 import { POST as postTextCapture } from "@/app/api/capture/text/route";
+import { resolveRequestUserId } from "@/lib/auth/request";
 import { getActiveObjective, saveUserObjective } from "@/lib/db/queries";
 import { processConversation } from "@/lib/intelligence/process";
 import { recommendNextAction } from "@/lib/intelligence/recommend";
@@ -46,7 +47,7 @@ function buildObjectiveSeed(
 export async function POST(request: Request) {
   try {
     const body = await parseJsonBody<WorkflowFullFlowRequest>(request);
-    const userId = requiredString(body.userId, "userId");
+    const userId = await resolveRequestUserId(body.userId);
     const rawText = requiredString(body.rawText, "rawText");
     const captureType = body.captureType ?? "text";
 

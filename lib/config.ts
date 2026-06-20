@@ -16,12 +16,15 @@ const calaKey = env("CALA_API_KEY");
 const geminiKey = env("GEMINI_API_KEY");
 const openaiKey = env("OPENAI_API_KEY");
 const molliePaymentLink = env("MOLLIE_PAYMENT_LINK");
+const supabaseUrl = env("NEXT_PUBLIC_SUPABASE_URL") ?? env("SUPABASE_URL");
+const supabaseAnonKey = env("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
 const forcedDemo = env("AFTERMEET_DEMO_MODE");
 const forceDemoMode = forcedDemo === "true";
 const forceLiveMode = forcedDemo === "false";
 
 export const providerAvailability = {
+  supabase: Boolean(supabaseUrl && supabaseAnonKey),
   cala: Boolean(calaKey),
   gemini: Boolean(geminiKey),
   whisper: Boolean(openaiKey),

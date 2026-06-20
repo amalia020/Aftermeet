@@ -190,7 +190,7 @@ const ALL_OPPORTUNITY_TYPES: OpportunityType[] = [
 ];
 
 function activeObjective(userId = DEMO_USER_ID): UserObjectiveProfile {
-  return getActiveObjective(userId) ?? demoObjective;
+  return getActiveObjective(userId) ?? (canUseDemoFallback(userId) ? demoObjective : defaultObjective(userId));
 }
 
 function titleCase(value: string): string {
@@ -234,6 +234,31 @@ function formatDate(date = new Date()): string {
     month: "long",
     day: "numeric",
   }).format(date);
+}
+
+function defaultObjective(userId: Id): UserObjectiveProfile {
+  const timestamp = new Date().toISOString();
+  return {
+    id: `obj_${userId}_setup`,
+    userId,
+    role: "founder",
+    primaryGoal: "find_users",
+    activeGoals: ["find_users"],
+    secondaryGoals: [],
+    eventContext: null,
+    companyName: null,
+    companyStage: null,
+    productDescription: null,
+    targetCustomer: null,
+    currentTraction: null,
+    fundraisingStatus: null,
+    hiringNeeds: [],
+    attentionBudgetToday: 3,
+    preferredTone: "warm",
+    constraints: [],
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
 }
 
 function initials(name?: string | null): string {
@@ -331,7 +356,7 @@ function buildPart5Move(move: DailyMoveDecision): BriefMove {
 
 function liveRecommendations(userId: Id): ActionRecommendation[] {
   return listRecommendations(userId).filter(
-    (rec) => rec.status !== "archived" && rec.status !== "overridden",
+    (rec) => rec.status === "pending",
   );
 }
 
@@ -414,10 +439,35 @@ function demoBriefWithObjective(objective: UserObjectiveProfile): DailyBriefView
   };
 }
 
+function canUseDemoFallback(userId: Id): boolean {
+  return userId === DEMO_USER_ID && process.env.AFTERMEET_DEMO_MODE !== "false";
+}
+
+function emptyBriefWithObjective(objective: UserObjectiveProfile): DailyBriefViewModel {
+  return {
+    activeObjective: objective,
+    missionTitle: missionTitle(objective),
+    missionContext: objective.eventContext ?? "Setup",
+    currentDate: formatDate(),
+    headline: "No relationship moves yet",
+    moves: [],
+    missionGap: missionGap(objective),
+    proof: [
+      { label: "Today", value: "0", note: "relationship moves" },
+      { label: "Warm", value: "0", note: "relationships captured" },
+      { label: "Blocked", value: "0", note: "waiting or hold states" },
+    ],
+  };
+}
+
 export function getDailyBriefViewModel(userId = DEMO_USER_ID): DailyBriefViewModel {
   const objective = activeObjective(userId);
   const recs = liveRecommendations(userId);
-  if (!recs.length) return demoBriefWithObjective(objective);
+  if (!recs.length) {
+    return canUseDemoFallback(userId)
+      ? demoBriefWithObjective(objective)
+      : emptyBriefWithObjective(objective);
+  }
 
   const dailyMoves = selectStoredDailyMoves({
     userId,

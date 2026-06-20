@@ -6,7 +6,7 @@ import type { DailyBriefViewModel } from "@/lib/frontend/viewModels";
 export function DailyBrief({ brief }: { brief: DailyBriefViewModel }) {
   return (
     <section className="screen daily-brief">
-      <div className="screen-kicker">Today&apos;s relationship brief</div>
+      <div className="screen-kicker">Today</div>
       <div className="mission-title-block">
         <h1>{brief.missionTitle}</h1>
         <p>{brief.missionContext}</p>
@@ -19,7 +19,7 @@ export function DailyBrief({ brief }: { brief: DailyBriefViewModel }) {
         </div>
         <Link className="capture-fab" href="/capture">
           <Radio size={19} />
-          <span>Capture signal</span>
+          <span>Capture note</span>
         </Link>
       </div>
 
@@ -96,14 +96,14 @@ export function DailyBrief({ brief }: { brief: DailyBriefViewModel }) {
       ) : null}
 
       <article className="attention-card gap-card">
-        <div className="attention-label">
-          <CalendarClock size={18} />
-          <span>Mission gap</span>
+          <div className="attention-label">
+            <CalendarClock size={18} />
+          <span>Focus gap</span>
         </div>
         <p>{brief.missionGap}</p>
-        <Link className="primary-action" href="/terminal">
+        <Link className="primary-action" href="/board">
           <Search size={17} />
-          <span>Open radar</span>
+          <span>View people</span>
         </Link>
       </article>
     </section>

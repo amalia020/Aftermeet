@@ -51,7 +51,7 @@ export function OutcomeLoop({ loop }: { loop: OutcomeLoopViewModel }) {
       <div className="loop-hero">
         <Avatar initials={loop.contact.initials} tone="signal" size="lg" />
         <h1>{loop.prompt}</h1>
-        <p>Feedback keeps the daily brief tuned to your real mission fit.</p>
+        <p>Feedback keeps Today tuned to your real relationship fit.</p>
       </div>
 
       <div className="outcome-options">

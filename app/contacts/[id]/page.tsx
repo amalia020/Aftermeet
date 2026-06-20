@@ -1,6 +1,7 @@
 import { AppShell } from "@/components/AppShell";
 import { PersonIntelligence } from "@/components/PersonIntelligence";
 import { getPersonIntelligenceViewModel } from "@/lib/frontend/viewModels";
+import { requireMissionUser } from "@/lib/auth/server";
 
 export const dynamic = "force-dynamic";
 
@@ -9,11 +10,12 @@ interface PersonPageProps {
 }
 
 export default async function PersonPage({ params }: PersonPageProps) {
+  const user = await requireMissionUser();
   const { id } = await params;
-  const personIntelligence = getPersonIntelligenceViewModel(id);
+  const personIntelligence = getPersonIntelligenceViewModel(id, user.id);
 
   return (
-    <AppShell active="capture">
+    <AppShell active="people">
       <PersonIntelligence person={personIntelligence} />
     </AppShell>
   );

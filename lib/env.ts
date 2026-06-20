@@ -1,4 +1,6 @@
 export interface ServerEnv {
+  supabaseUrl?: string;
+  supabaseAnonKey?: string;
   calaApiKey?: string;
   calaApiBaseUrl?: string;
   calaApiUrl?: string;
@@ -12,6 +14,8 @@ export interface ServerEnv {
 
 export function getServerEnv(): ServerEnv {
   return {
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
+    supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     calaApiKey: process.env.CALA_API_KEY,
     calaApiBaseUrl: process.env.CALA_API_BASE_URL,
     calaApiUrl: process.env.CALA_API_URL,

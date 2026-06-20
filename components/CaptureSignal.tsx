@@ -31,6 +31,14 @@ function formatScore(score: number): string {
   return `${Math.round(score * 100)}%`;
 }
 
+function formatGoal(value: string): string {
+  return value
+    .replaceAll("_", " ")
+    .split(" ")
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export function CaptureSignal({
   viewModel,
 }: {
@@ -126,7 +134,7 @@ export function CaptureSignal({
       </div>
       <form className="capture-composer" onSubmit={handleSubmit}>
         <div>
-          <div className="screen-kicker">Recruit Core Talent</div>
+          <div className="screen-kicker">{formatGoal(viewModel.activeObjective.primaryGoal)}</div>
           <h1>Add relationship signal</h1>
         </div>
         <textarea

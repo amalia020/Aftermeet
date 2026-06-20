@@ -51,7 +51,19 @@ function splitList(value: FormDataEntryValue | null): string[] {
     .filter(Boolean);
 }
 
-export function ObjectiveEditor({ objective }: { objective: UserObjectiveProfile }) {
+export function ObjectiveEditor({
+  objective,
+  title = "Setup",
+  kicker = "Workspace setup",
+  saveLabel = "Save setup",
+  returnTo = "/",
+}: {
+  objective: UserObjectiveProfile;
+  title?: string;
+  kicker?: string;
+  saveLabel?: string;
+  returnTo?: string;
+}) {
   const router = useRouter();
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -91,6 +103,7 @@ export function ObjectiveEditor({ objective }: { objective: UserObjectiveProfile
       if (response.ok) {
         setSaved(true);
         router.refresh();
+        router.push(returnTo);
       }
     } finally {
       setSaving(false);
@@ -99,8 +112,8 @@ export function ObjectiveEditor({ objective }: { objective: UserObjectiveProfile
 
   return (
     <section className="screen objective-screen">
-      <div className="screen-kicker">Active mission</div>
-      <h1>Mission control</h1>
+      <div className="screen-kicker">{kicker}</div>
+      <h1>{title}</h1>
       <form className="objective-form" onSubmit={submit}>
         <div className="objective-grid">
           <label>
@@ -167,7 +180,7 @@ export function ObjectiveEditor({ objective }: { objective: UserObjectiveProfile
 
         <button className="primary-action objective-save" disabled={saving} type="submit">
           {saved ? <Check size={17} /> : <Save size={17} />}
-          {saved ? "Saved" : "Save mission"}
+          {saved ? "Saved" : saveLabel}
         </button>
       </form>
     </section>

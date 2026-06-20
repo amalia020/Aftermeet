@@ -1,4 +1,5 @@
 import type { TextCaptureRequest } from "@/lib/types";
+import { resolveRequestUserId } from "@/lib/auth/request";
 import { createConversation, getActiveObjective } from "@/lib/db/queries";
 import {
   createRequestId,
@@ -17,7 +18,7 @@ export async function POST(request: Request) {
   const requestId = createRequestId();
   try {
     const body = await parseJsonBody<TextCaptureRequest>(request);
-    const userId = requiredString(body.userId, "userId");
+    const userId = await resolveRequestUserId(body.userId);
     const rawText = requiredString(body.rawText, "rawText");
     if (rawText.length > MAX_RAW_TEXT_LENGTH) {
       throw new HttpError(400, "VALIDATION_ERROR", "rawText is too long.", {

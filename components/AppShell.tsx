@@ -5,13 +5,11 @@ import {
   Blocks,
   ClipboardCheck,
   Radio,
-  Radar,
   RefreshCcw,
-  Search,
   Target,
 } from "lucide-react";
 
-type NavKey = "brief" | "radar" | "capture" | "board" | "loops" | "mission";
+type NavKey = "today" | "capture" | "people" | "progress" | "setup";
 
 interface AppShellProps {
   active: NavKey;
@@ -24,11 +22,10 @@ const navItems: {
   label: string;
   icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
 }[] = [
-  { key: "brief", href: "/", label: "Brief", icon: ClipboardCheck },
-  { key: "radar", href: "/terminal", label: "Radar", icon: Radar },
+  { key: "today", href: "/", label: "Today", icon: ClipboardCheck },
   { key: "capture", href: "/capture", label: "Capture", icon: Radio },
-  { key: "board", href: "/board", label: "Board", icon: Blocks },
-  { key: "loops", href: "/traction", label: "Loops", icon: RefreshCcw },
+  { key: "people", href: "/board", label: "People", icon: Blocks },
+  { key: "progress", href: "/traction", label: "Progress", icon: RefreshCcw },
 ];
 
 export function AppShell({ active, children }: AppShellProps) {
@@ -40,13 +37,10 @@ export function AppShell({ active, children }: AppShellProps) {
           <span>Aftermeet</span>
         </Link>
         <div className="topbar-actions">
-          <Link aria-label="Edit mission" className="topbar-link" href="/objective">
+          <Link aria-label="Edit setup" className="topbar-link" href="/setup">
             <Target size={19} />
-            <span>Mission</span>
+            <span>Setup</span>
           </Link>
-          <button aria-label="Search relationships" className="icon-button">
-            <Search size={22} />
-          </button>
         </div>
       </header>
       <main className="app-main">{children}</main>
