@@ -61,6 +61,8 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const encoder = new TextEncoder();
+const PROCESS_JOB_TTL_MS = 30 * 60 * 1000;
+const PROCESS_JOB_MAX = 120;
 
 function sseLine(event: ProcessStageEvent): Uint8Array {
   return encoder.encode(`data: ${JSON.stringify(event)}\n\n`);
@@ -72,6 +74,140 @@ interface Emitter {
     status: ProcessStageEvent["status"],
     extra?: { message?: string; payload?: JsonValue },
   ): void;
+}
+
+interface PipelineJob {
+  id: string;
+  req: ProcessConversationRequest;
+  status: "idle" | "running" | "completed" | "failed";
+  events: ProcessStageEvent[];
+  listeners: Set<(event: ProcessStageEvent) => void>;
+  startedAt: number;
+  endedAt?: number;
+}
+
+function isTerminalEvent(event: ProcessStageEvent): boolean {
+  return event.stage === "handoff_ready" || event.stage === "failed";
+}
+
+function isTerminalStatus(status: PipelineJob["status"]): boolean {
+  return status === "completed" || status === "failed";
+}
+
+function getJobStore(): Map<string, PipelineJob> {
+  const scoped = globalThis as typeof globalThis & {
+    __aftermeetProcessJobs?: Map<string, PipelineJob>;
+  };
+  if (!scoped.__aftermeetProcessJobs) {
+    scoped.__aftermeetProcessJobs = new Map<string, PipelineJob>();
+  }
+  return scoped.__aftermeetProcessJobs;
+}
+
+function processJobId(req: ProcessConversationRequest): string {
+  return req.conversationId ?? req.requestId;
+}
+
+function pruneJobs(store: Map<string, PipelineJob>, now = Date.now()) {
+  for (const [id, job] of store) {
+    if (isTerminalStatus(job.status) && job.endedAt && now - job.endedAt > PROCESS_JOB_TTL_MS) {
+      store.delete(id);
+    }
+  }
+
+  if (store.size <= PROCESS_JOB_MAX) return;
+  const sorted = [...store.entries()].sort(
+    (left, right) => (left[1].endedAt ?? left[1].startedAt) - (right[1].endedAt ?? right[1].startedAt),
+  );
+  for (const [id] of sorted.slice(0, Math.max(0, store.size - PROCESS_JOB_MAX))) {
+    store.delete(id);
+  }
+}
+
+function getOrCreateJob(req: ProcessConversationRequest): PipelineJob {
+  const store = getJobStore();
+  pruneJobs(store);
+  const id = processJobId(req);
+  const existing = store.get(id);
+  if (existing) {
+    return existing;
+  }
+
+  const job: PipelineJob = {
+    id,
+    req,
+    status: "idle",
+    events: [],
+    listeners: new Set<(event: ProcessStageEvent) => void>(),
+    startedAt: Date.now(),
+  };
+  store.set(id, job);
+  return job;
+}
+
+function notifyListeners(job: PipelineJob, event: ProcessStageEvent) {
+  for (const listener of job.listeners) {
+    listener(event);
+  }
+}
+
+function startJob(job: PipelineJob) {
+  if (job.status === "running" || isTerminalStatus(job.status)) {
+    return;
+  }
+
+  job.status = "running";
+  void (async () => {
+    const emitter: Emitter = {
+      emit(stage, status, extra) {
+        const event: ProcessStageEvent = {
+          requestId: job.req.requestId,
+          conversationId: job.req.conversationId,
+          stage,
+          status,
+          message: extra?.message,
+          payload: extra?.payload,
+          timestamp: new Date().toISOString(),
+        };
+        job.events.push(event);
+        if (isTerminalEvent(event)) {
+          job.status = event.stage === "failed" ? "failed" : "completed";
+          job.endedAt = Date.now();
+        }
+        notifyListeners(job, event);
+      },
+    };
+
+    try {
+      await runPipeline(emitter, job.req);
+      if (!isTerminalStatus(job.status)) {
+        job.status = "completed";
+        job.endedAt = Date.now();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (job.req.conversationId) {
+        const conv = getConversation(job.req.conversationId);
+        if (conv) {
+          upsertConversation({ ...conv, processingStatus: "failed" });
+        }
+      }
+      const failedEvent: ProcessStageEvent = {
+        requestId: job.req.requestId,
+        conversationId: job.req.conversationId,
+        stage: "failed",
+        status: "failed",
+        message,
+        timestamp: new Date().toISOString(),
+      };
+      job.events.push(failedEvent);
+      job.status = "failed";
+      job.endedAt = Date.now();
+      notifyListeners(job, failedEvent);
+    } finally {
+      pruneJobs(getJobStore());
+    }
+  })();
 }
 
 function makeContactFromCandidate(
@@ -352,40 +488,58 @@ async function runPipeline(
 }
 
 function buildStream(req: ProcessConversationRequest): ReadableStream<Uint8Array> {
-  return new ReadableStream<Uint8Array>({
-    async start(controller) {
-      let closed = false;
-      const emitter: Emitter = {
-        emit(stage, status, extra) {
-          if (closed) return;
-          const event: ProcessStageEvent = {
-            requestId: req.requestId,
-            conversationId: req.conversationId,
-            stage,
-            status,
-            message: extra?.message,
-            payload: extra?.payload,
-            timestamp: new Date().toISOString(),
-          };
-          controller.enqueue(sseLine(event));
-        },
-      };
+  const job = getOrCreateJob(req);
+  startJob(job);
+  let listener: ((event: ProcessStageEvent) => void) | null = null;
 
-      try {
-        await runPipeline(emitter, req);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        // Mark the conversation failed if we can, then emit a failed event.
-        if (req.conversationId) {
-          const conv = getConversation(req.conversationId);
-          if (conv) {
-            upsertConversation({ ...conv, processingStatus: "failed" });
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      let closed = false;
+
+      const safeEnqueue = (event: ProcessStageEvent) => {
+        if (closed) return;
+        try {
+          controller.enqueue(sseLine(event));
+        } catch {
+          closed = true;
+          if (listener) {
+            job.listeners.delete(listener);
           }
         }
-        emitter.emit("failed", "failed", { message });
-      } finally {
+      };
+
+      listener = (event: ProcessStageEvent) => {
+        safeEnqueue(event);
+        if (isTerminalEvent(event) && !closed) {
+          closed = true;
+          if (listener) {
+            job.listeners.delete(listener);
+          }
+          controller.close();
+        }
+      };
+
+      for (const event of job.events) {
+        safeEnqueue(event);
+      }
+
+      if (closed) {
+        return;
+      }
+
+      if (isTerminalStatus(job.status)) {
         closed = true;
         controller.close();
+        return;
+      }
+
+      if (listener) {
+        job.listeners.add(listener);
+      }
+    },
+    cancel() {
+      if (listener) {
+        job.listeners.delete(listener);
       }
     },
   });

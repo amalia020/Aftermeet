@@ -49,6 +49,16 @@ interface RealtimeTranscriptionEvent {
   };
 }
 
+interface ActiveCaptureState {
+  requestId: string;
+  conversationId: string;
+  streamUrl: string;
+  captureMode: CaptureType;
+  note: string;
+}
+
+const ACTIVE_CAPTURE_STORAGE_KEY = "aftermeet.activeCapture";
+
 function formatAction(action: string): string {
   return action
     .toLowerCase()
@@ -71,6 +81,37 @@ function audioFileExtension(mimeType: string): string {
   if (mimeType.includes("mpeg")) return "mp3";
   if (mimeType.includes("ogg")) return "ogg";
   return "webm";
+}
+
+function loadActiveCaptureState(): ActiveCaptureState | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(ACTIVE_CAPTURE_STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<ActiveCaptureState>;
+    if (
+      typeof parsed.requestId !== "string" ||
+      typeof parsed.conversationId !== "string" ||
+      typeof parsed.streamUrl !== "string" ||
+      (parsed.captureMode !== "text" && parsed.captureMode !== "voice" && parsed.captureMode !== "card") ||
+      typeof parsed.note !== "string"
+    ) {
+      return null;
+    }
+    return parsed as ActiveCaptureState;
+  } catch {
+    return null;
+  }
+}
+
+function saveActiveCaptureState(state: ActiveCaptureState) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(ACTIVE_CAPTURE_STORAGE_KEY, JSON.stringify(state));
+}
+
+function clearActiveCaptureState() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(ACTIVE_CAPTURE_STORAGE_KEY);
 }
 
 export function CaptureSignal({
@@ -99,6 +140,7 @@ export function CaptureSignal({
   const realtimeItemOrderRef = useRef<string[]>([]);
   const realtimePeerRef = useRef<RTCPeerConnection | null>(null);
   const realtimeTimeoutRef = useRef<number | null>(null);
+  const resumeAttemptedRef = useRef(false);
 
   const objectiveSeed = useMemo<WorkflowObjectiveSeed | null>(
     () =>
@@ -135,6 +177,48 @@ export function CaptureSignal({
       cameraVideoRef.current.srcObject = cameraStreamRef.current;
     }
   }, [cameraOpen]);
+
+  useEffect(() => {
+    if (resumeAttemptedRef.current) return;
+    resumeAttemptedRef.current = true;
+
+    const pending = loadActiveCaptureState();
+    if (!pending) return;
+
+    setCaptureMode(pending.captureMode);
+    if (pending.note) {
+      setNote(pending.note);
+    }
+    setState("submitting");
+    setError(null);
+    setProcessEvents([]);
+
+    void consumeProcessStream(
+      {
+        requestId: pending.requestId,
+        conversationId: pending.conversationId,
+        status: "processing",
+        streamUrl: pending.streamUrl,
+      },
+      {
+        captureMode: pending.captureMode,
+        note: pending.note,
+      },
+    )
+      .then((payload) => {
+        setResult(payload);
+        setState("success");
+      })
+      .catch((caught) => {
+        setResult(null);
+        setState("error");
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "We couldn't reconnect to the background processing.",
+        );
+      });
+  }, []);
 
   const setRealtimeItemTranscript = (itemId: string, transcript: string) => {
     if (!realtimeItemsRef.current.has(itemId)) {
@@ -303,7 +387,14 @@ export function CaptureSignal({
         mediaRecorderRef.current = null;
       };
 
-      await connectRealtimeTranscription(stream);
+      try {
+        await connectRealtimeTranscription(stream);
+      } catch {
+        // Realtime transcription is optional: keep recording and fall back to
+        // server-side transcription on submit.
+        setTranscriptStatus("Live transcript unavailable - recording will still work.");
+        closeRealtimeConnection();
+      }
       recorder.start();
       setRecordingState("recording");
     } catch (caught) {
@@ -402,8 +493,19 @@ export function CaptureSignal({
 
   const consumeProcessStream = async (
     capture: CaptureAcceptedResponse,
+    persist?: { captureMode: CaptureType; note: string },
   ): Promise<WorkflowFullFlowResponse> => {
     if (!capture.streamUrl) throw new Error("We couldn't start processing your note.");
+    if (persist) {
+      saveActiveCaptureState({
+        requestId: capture.requestId,
+        conversationId: capture.conversationId,
+        streamUrl: capture.streamUrl,
+        captureMode: persist.captureMode,
+        note: persist.note,
+      });
+    }
+
     const response = await fetch(capture.streamUrl, {
       headers: { Accept: "text/event-stream" },
     });
@@ -433,6 +535,7 @@ export function CaptureSignal({
       events.push(event);
       setProcessEvents([...events]);
       if (event.stage === "failed") {
+        clearActiveCaptureState();
         throw new Error(event.message ?? "Something went wrong while processing your note.");
       }
       if (event.stage === "handoff_ready" && event.payload) {
@@ -455,9 +558,13 @@ export function CaptureSignal({
           evidenceBundle: EvidenceBundle;
         })
       | null;
-    if (!completedPayload) throw new Error("Processing finished without a result — please try again.");
+    if (!completedPayload) {
+      clearActiveCaptureState();
+      throw new Error("Processing finished without a result - please try again.");
+    }
 
     const { extractionHandoff, evidenceBundle, ...recommendationPackage } = completedPayload;
+    clearActiveCaptureState();
     return {
       objective: {
         existed: true,
@@ -489,7 +596,10 @@ export function CaptureSignal({
     if (!response.ok) {
       throw new Error("message" in payload ? payload.message : "The note could not be captured.");
     }
-    return consumeProcessStream(payload as CaptureAcceptedResponse);
+    return consumeProcessStream(payload as CaptureAcceptedResponse, {
+      captureMode: "text",
+      note: rawText,
+    });
   };
 
   const submitVoiceCapture = async (blob: Blob) => {
@@ -529,7 +639,10 @@ export function CaptureSignal({
       setTranscriptStatus("Transcript ready");
     }
 
-    return consumeProcessStream(voiceCapture);
+    return consumeProcessStream(voiceCapture, {
+      captureMode: "voice",
+      note: voiceCapture.transcript ?? note,
+    });
   };
 
   const submitCardCapture = async (imageFile: File, meetingContext: string) => {
@@ -552,7 +665,10 @@ export function CaptureSignal({
 
     const cardCapture = payload as CardCaptureAcceptedResponse;
     if (cardCapture.cardText) setNote(cardCapture.cardText);
-    return consumeProcessStream(cardCapture);
+    return consumeProcessStream(cardCapture, {
+      captureMode: "card",
+      note: cardCapture.cardText ?? meetingContext,
+    });
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
