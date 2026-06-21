@@ -122,6 +122,22 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
           }
         }
       },
+      "/api/auth/demo": {
+        post: {
+          tags: ["Demo"],
+          summary: "Create a passcode-gated anonymous demo session",
+          description:
+            "Validates the demo passcode and signs the browser into a per-user Supabase anonymous session. Returns the first page to open after auth.",
+          requestBody: jsonRequest(ref("DemoAuthRequest"), {
+            passcode: "demo-pass"
+          }),
+          responses: {
+            "200": jsonResponse(ref("DemoAuthResponse"), "Demo session created"),
+            "401": jsonResponse(ref("ErrorResponse"), "Invalid demo passcode"),
+            "503": jsonResponse(ref("ErrorResponse"), "Demo auth unavailable")
+          }
+        }
+      },
       "/api/diagnostics/providers": {
         get: {
           tags: ["Diagnostics"],
@@ -511,6 +527,20 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
             ok: { type: "boolean" }
           },
           required: ["ok"]
+        },
+        DemoAuthRequest: {
+          type: "object",
+          properties: {
+            passcode: stringSchema
+          },
+          required: ["passcode"]
+        },
+        DemoAuthResponse: {
+          type: "object",
+          properties: {
+            destination: { type: "string", enum: ["/setup", "/today"] }
+          },
+          required: ["destination"]
         },
         HealthResponse: {
           type: "object",

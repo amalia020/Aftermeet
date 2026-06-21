@@ -40,7 +40,8 @@ export async function GET(request: Request) {
     .from("user_objectives")
     .select("id")
     .eq("user_id", data.session.user.id)
-    .eq("is_active", true)
+    .order("updated_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   const destination = getAuthCallbackDestination({
