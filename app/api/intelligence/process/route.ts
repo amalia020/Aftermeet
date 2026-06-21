@@ -21,22 +21,19 @@
  * pipeline runs from fixtures when no keys are present.
  */
 
+import { resolveRequestUserId } from "@/lib/auth/request";
 import {
-  DEMO_USER_ID,
-  getActiveObjective,
-  getConversation,
-  saveAtoms,
-  upsertContact,
-  upsertConversation,
-} from "@/lib/db/queries";
+  getActiveObjectiveForUser,
+  getConversationForUser,
+  saveAtomsForUser,
+  upsertContactForUser,
+  upsertConversationForUser,
+} from "@/lib/db/store";
 import { extractConversationAtoms } from "@/lib/intelligence/extraction";
 import { enrichEvidence } from "@/lib/intelligence/enrichment";
 import { recommendNextAction } from "@/lib/intelligence/recommend";
 import { deterministicId } from "@/lib/utils";
-import {
-  part1DemoObjective,
-  part1DemoRawText,
-} from "@/lib/demo/savedExamples";
+import { part1DemoRawText } from "@/lib/demo/savedExamples";
 import {
   part2DemoEvidenceBundle,
   part3DemoRecommendationPackage,
@@ -193,7 +190,7 @@ async function runPipeline(
   emitter.emit("capturing", "started", { message: "Loading conversation" });
 
   let conversation =
-    (req.conversationId ? getConversation(req.conversationId) : undefined) ??
+    (req.conversationId ? await getConversationForUser(req.conversationId) : undefined) ??
     undefined;
 
   if (!conversation) {
@@ -214,10 +211,10 @@ async function runPipeline(
       capturedAt: nowIso,
       processingStatus: "pending",
     };
-    upsertConversation(conversation);
+    await upsertConversationForUser(conversation);
   }
 
-  conversation = upsertConversation({
+  conversation = await upsertConversationForUser({
     ...conversation,
     processingStatus: "processing",
   });
@@ -226,8 +223,8 @@ async function runPipeline(
   });
 
   // --- objective (required; fall back to demo objective) ---
-  const objective: UserObjectiveProfile =
-    getActiveObjective(conversation.userId) ?? part1DemoObjective;
+  const objective = await getActiveObjectiveForUser(conversation.userId);
+  if (!objective) throw new Error("OBJECTIVE_REQUIRED");
 
   // --- extracting ---
   emitter.emit("extracting", "started", {
@@ -256,7 +253,13 @@ async function runPipeline(
   // --- persisting_atoms + contact upsert ---
   emitter.emit("persisting_atoms", "started");
   const atomsId = deterministicId("atoms", conversation.id);
-  saveAtoms(conversation.id, result.atoms, atomsId, nowIso);
+  await saveAtomsForUser({
+    userId: conversation.userId,
+    conversationId: conversation.id,
+    atoms: result.atoms,
+    id: atomsId,
+    createdAt: nowIso,
+  });
 
   const contact = makeContactFromCandidate(
     conversation.userId,
@@ -266,8 +269,8 @@ async function runPipeline(
     nowIso,
     contactSourceTypeFor(conversation.captureType),
   );
-  upsertContact(contact);
-  conversation = upsertConversation({
+  await upsertContactForUser(contact);
+  conversation = await upsertConversationForUser({
     ...conversation,
     contactId: contact.id,
     processingStatus: "extracted",
@@ -373,9 +376,9 @@ function buildStream(req: ProcessConversationRequest): ReadableStream<Uint8Array
         const message = error instanceof Error ? error.message : String(error);
         // Mark the conversation failed if we can, then emit a failed event.
         if (req.conversationId) {
-          const conv = getConversation(req.conversationId);
+          const conv = await getConversationForUser(req.conversationId);
           if (conv) {
-            upsertConversation({ ...conv, processingStatus: "failed" });
+            await upsertConversationForUser({ ...conv, processingStatus: "failed" });
           }
         }
         emitter.emit("failed", "failed", { message });
@@ -397,28 +400,30 @@ function streamResponse(req: ProcessConversationRequest): Response {
   });
 }
 
-function requestFromSearchParams(url: URL): ProcessConversationRequest | null {
+async function requestFromSearchParams(url: URL): Promise<ProcessConversationRequest | null> {
   const conversationId = url.searchParams.get("conversationId") ?? undefined;
   if (!conversationId) return null;
-  const conv = getConversation(conversationId);
+  const userId = await resolveRequestUserId(url.searchParams.get("userId"));
+  const conv = await getConversationForUser(conversationId);
+  if (!conv || conv.userId !== userId) return null;
   const requestId =
     url.searchParams.get("requestId") ??
     deterministicId("req", conversationId);
   return {
     requestId,
-    userId: conv?.userId ?? DEMO_USER_ID,
+    userId: conv.userId,
     conversationId,
-    captureType: conv?.captureType ?? "text",
-    rawText: conv?.rawText,
-    transcript: conv?.transcript ?? undefined,
-    eventContext: conv?.eventContext ?? undefined,
+    captureType: conv.captureType,
+    rawText: conv.rawText,
+    transcript: conv.transcript ?? undefined,
+    eventContext: conv.eventContext ?? undefined,
   };
 }
 
 /** GET form: stream for an already-captured conversation (used by streamUrl). */
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const req = requestFromSearchParams(url);
+  const req = await requestFromSearchParams(url);
   if (!req) {
     return new Response(
       JSON.stringify({
@@ -441,7 +446,8 @@ export async function POST(request: Request) {
   }
 
   const conversationId = body.conversationId;
-  const conv = conversationId ? getConversation(conversationId) : undefined;
+  const userId = await resolveRequestUserId(body.userId);
+  const conv = conversationId ? await getConversationForUser(conversationId) : undefined;
 
   if (!conversationId && !body.rawText && !body.transcript && !body.cardText) {
     return new Response(
@@ -457,7 +463,7 @@ export async function POST(request: Request) {
     requestId:
       body.requestId ??
       deterministicId("req", conversationId ?? `${Date.now()}`),
-    userId: body.userId ?? conv?.userId ?? DEMO_USER_ID,
+    userId: conv?.userId ?? userId,
     conversationId,
     captureType: body.captureType ?? conv?.captureType ?? "text",
     rawText: body.rawText ?? conv?.rawText,

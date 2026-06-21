@@ -8,15 +8,15 @@ import type {
   ProcessStageEvent
 } from "@/lib/types";
 import {
-  createConversation,
-  getActiveObjective,
-  getConversation,
-  saveConversationAtoms,
-  saveExtractionHandoff,
-  setConversationContact,
-  updateConversationStatus,
-  upsertContactFromCandidate
-} from "@/lib/db/queries";
+  createConversationForUser,
+  getActiveObjectiveForUser,
+  getConversationForUser,
+  saveAtomsForUser,
+  saveExtractionHandoffForUser,
+  setConversationContactForUser,
+  updateConversationStatusForUser,
+  upsertContactFromCandidateForUser
+} from "@/lib/db/store";
 import { HttpError } from "@/lib/server/http";
 import { extractConversationAtomsDetailed } from "@/lib/intelligence/extraction";
 import { enrichEvidence } from "@/lib/intelligence/enrichment";
@@ -70,12 +70,12 @@ export async function processConversation(
   };
 
   try {
-    const objective = await getActiveObjective(input.userId);
+    const objective = await getActiveObjectiveForUser(input.userId);
     if (!objective) {
       throw new HttpError(422, "OBJECTIVE_REQUIRED", "No active objective is available.");
     }
 
-    let conversation = input.conversationId ? await getConversation(input.conversationId) : null;
+    let conversation = input.conversationId ? await getConversationForUser(input.conversationId) : null;
     const rawText = normalizedText(input, conversation?.rawText);
     if (!rawText) {
       throw new HttpError(400, "VALIDATION_ERROR", "Conversation text is required.");
@@ -83,7 +83,7 @@ export async function processConversation(
 
     await emitEvent("capturing", "started", "Normalizing captured conversation.", undefined, conversation?.id);
     if (!conversation) {
-      conversation = await createConversation({
+      conversation = await createConversationForUser({
         userId: input.userId,
         rawText,
         captureType: input.captureType,
@@ -97,7 +97,7 @@ export async function processConversation(
       throw new HttpError(422, "ENRICHMENT_NOT_ALLOWED", "Conversation does not belong to this user.");
     }
 
-    await updateConversationStatus(conversation.id, "processing");
+    await updateConversationStatusForUser(conversation.id, "processing");
     await emitEvent("capturing", "completed", "Conversation capture persisted.", undefined, conversation.id);
 
     if (input.captureType === "voice") {
@@ -125,7 +125,7 @@ export async function processConversation(
       conversation.id
     );
 
-    const contact = await upsertContactFromCandidate({
+    const contact = await upsertContactFromCandidateForUser({
       userId: input.userId,
       candidate: extraction.contactCandidate,
       sourceType:
@@ -133,16 +133,17 @@ export async function processConversation(
       entityMatchConfidence: 0.5
     });
     if (contact) {
-      const updatedConversation = await setConversationContact(conversation.id, contact.id);
+      const updatedConversation = await setConversationContactForUser(conversation.id, contact.id);
       if (updatedConversation) conversation = updatedConversation;
     }
 
     await emitEvent("persisting_atoms", "started", "Persisting extracted atoms.", undefined, conversation.id);
-    await saveConversationAtoms({
+    await saveAtomsForUser({
+      userId: input.userId,
       conversationId: conversation.id,
       atoms: extraction.atoms
     });
-    await updateConversationStatus(conversation.id, "extracted");
+    await updateConversationStatusForUser(conversation.id, "extracted");
     await emitEvent("persisting_atoms", "completed", "Conversation atoms persisted.", undefined, conversation.id);
 
     const source = captureSource(input.captureType);
@@ -169,7 +170,7 @@ export async function processConversation(
         sourceConfidence: sourceRecord.sourceConfidence
       }
     };
-    await saveExtractionHandoff(extractionHandoff);
+    await saveExtractionHandoffForUser(extractionHandoff);
 
     await emitEvent("resolving_entity", "started", "Resolving captured entity.", undefined, conversation.id);
     await emitEvent("retrieving_context", "started", "Retrieving public professional context.", undefined, conversation.id);
@@ -201,7 +202,7 @@ export async function processConversation(
 
     return { extractionHandoff, evidenceBundle, events };
   } catch (error) {
-    if (input.conversationId) await updateConversationStatus(input.conversationId, "failed");
+    if (input.conversationId) await updateConversationStatusForUser(input.conversationId, "failed");
     await emitEvent(
       "failed",
       "failed",

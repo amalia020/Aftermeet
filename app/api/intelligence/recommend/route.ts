@@ -7,9 +7,9 @@
  */
 
 import { NextResponse } from "next/server";
-import { DEMO_USER_ID, getActiveObjective, getContact } from "@/lib/db/queries";
+import { resolveRequestUserId } from "@/lib/auth/request";
+import { getActiveObjectiveForUser, getContactForUser } from "@/lib/db/store";
 import { recommendNextAction } from "@/lib/intelligence/recommend";
-import { part1DemoObjective } from "@/lib/demo/savedExamples";
 import { part2DemoEvidenceBundle } from "@/lib/demo/fixtures";
 import type {
   ContactStatus,
@@ -39,19 +39,33 @@ export async function POST(request: Request) {
     );
   }
 
-  const userId = body.userId ?? DEMO_USER_ID;
+  let userId: string;
+  try {
+    userId = await resolveRequestUserId(body.userId);
+  } catch (error) {
+    const status = error instanceof Error && "status" in error ? Number(error.status) : 401;
+    return NextResponse.json<ErrorResponse>(
+      { error: "UNAUTHORIZED", message: "User session is required." },
+      { status },
+    );
+  }
 
   // Use the provided bundle, else fall back to the demo bundle.
   const evidenceBundle: EvidenceBundle =
     body.evidenceBundle ?? part2DemoEvidenceBundle;
 
   // Resolve the objective: explicit > active for user > demo objective.
-  const objective: UserObjectiveProfile =
-    body.objective ?? getActiveObjective(userId) ?? part1DemoObjective;
+  const objective = body.objective ?? (await getActiveObjectiveForUser(userId));
+  if (!objective) {
+    return NextResponse.json<ErrorResponse>(
+      { error: "OBJECTIVE_REQUIRED", message: "No active objective is available." },
+      { status: 422 },
+    );
+  }
 
   // Best-effort enrich status from the contact if available.
   const contactId = body.contactId ?? evidenceBundle.contactId;
-  const contact = contactId ? getContact(contactId) : undefined;
+  const contact = contactId ? await getContactForUser(contactId) : undefined;
   void contact; // status comes from the request; contact lookup is best-effort.
 
   const pkg = await recommendNextAction({

@@ -1,10 +1,10 @@
-import { createConversation, getActiveObjective } from "@/lib/db/queries";
+import { resolveRequestUserId } from "@/lib/auth/request";
+import { createConversationForUser, getActiveObjectiveForUser } from "@/lib/db/store";
 import {
   createRequestId,
   errorResponse,
   HttpError,
-  jsonResponse,
-  requiredString
+  jsonResponse
 } from "@/lib/server/http";
 import { isSupportedAudio, transcribeVoiceNote } from "@/lib/providers/whisper";
 
@@ -14,12 +14,14 @@ export async function POST(request: Request) {
   const requestId = createRequestId();
   try {
     const form = await request.formData();
-    const userId = requiredString(form.get("userId"), "userId");
+    const userId = await resolveRequestUserId(
+      typeof form.get("userId") === "string" ? String(form.get("userId")) : undefined
+    );
     const audioFile = form.get("audioFile");
     if (!(audioFile instanceof File) || !isSupportedAudio(audioFile)) {
       throw new HttpError(400, "UNSUPPORTED_AUDIO", "A supported audio file is required.");
     }
-    const objective = await getActiveObjective(userId);
+    const objective = await getActiveObjectiveForUser(userId);
     if (!objective) {
       throw new HttpError(422, "OBJECTIVE_REQUIRED", "No active objective is available.");
     }
@@ -32,7 +34,7 @@ export async function POST(request: Request) {
     const capturedAt =
       typeof form.get("capturedAt") === "string" ? String(form.get("capturedAt")) : undefined;
 
-    const conversation = await createConversation({
+    const conversation = await createConversationForUser({
       userId,
       rawText: transcription.transcript,
       captureType: "voice",

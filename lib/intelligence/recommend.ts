@@ -18,10 +18,10 @@
 import "server-only";
 import { clamp01, deterministicId, mean } from "@/lib/utils";
 import {
-  saveDraft,
-  saveOpportunityRoutes,
-  saveRecommendation,
-} from "@/lib/db/queries";
+  saveDraftForUser,
+  saveOpportunityRoutesForUser,
+  saveRecommendationForUser,
+} from "@/lib/db/store";
 import { part3DemoRecommendationPackage } from "@/lib/demo/fixtures";
 import { inferUserCluster } from "./userObjective";
 import { classifyContactCluster } from "./clustering";
@@ -367,9 +367,9 @@ export async function recommendNextAction(
 
     // --- Persist ---
     try {
-      saveOpportunityRoutes(routes);
-      saveRecommendation(recommendation);
-      if (draft) saveDraft(draft);
+      await saveOpportunityRoutesForUser(routes, input.evidenceBundle.userId);
+      await saveRecommendationForUser(recommendation);
+      if (draft) await saveDraftForUser(draft, input.evidenceBundle.userId);
     } catch {
       warnings.push("Persistence unavailable — recommendation computed in-memory only.");
     }

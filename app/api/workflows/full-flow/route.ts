@@ -1,6 +1,6 @@
 import { POST as postTextCapture } from "@/app/api/capture/text/route";
 import { resolveRequestUserId } from "@/lib/auth/request";
-import { getActiveObjective, saveUserObjective } from "@/lib/db/queries";
+import { getActiveObjectiveForUser, saveUserObjectiveForUser } from "@/lib/db/store";
 import { processConversation } from "@/lib/intelligence/process";
 import { recommendNextAction } from "@/lib/intelligence/recommend";
 import {
@@ -52,13 +52,13 @@ export async function POST(request: Request) {
     const captureType = body.captureType ?? "text";
 
     const ensureObjective = body.ensureObjective !== false;
-    let objective = await getActiveObjective(userId);
+    let objective = await getActiveObjectiveForUser(userId);
     let objectiveCreated = false;
     if (!objective) {
       if (!ensureObjective) {
         throw new HttpError(422, "OBJECTIVE_REQUIRED", "No active objective is available.");
       }
-      objective = await saveUserObjective(buildObjectiveSeed(userId, body));
+      objective = await saveUserObjectiveForUser(buildObjectiveSeed(userId, body));
       objectiveCreated = true;
     }
 

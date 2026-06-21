@@ -1,5 +1,6 @@
 import type { CalaEnrichmentRequest, PublicEntityContext } from "@/lib/types";
-import { conversationBelongsToUser } from "@/lib/db/queries";
+import { resolveRequestUserId } from "@/lib/auth/request";
+import { conversationBelongsToUserId } from "@/lib/db/store";
 import { calaEntitySearch, calaRetrieveEntity } from "@/lib/providers/cala";
 import { summarizeEntityResolution } from "@/lib/intelligence/entityResolution";
 import { createSourceRecord } from "@/lib/intelligence/sourceConfidence";
@@ -16,13 +17,13 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   try {
     const body = await parseJsonBody<CalaEnrichmentRequest>(request);
-    const userId = requiredString(body.userId, "userId");
+    const userId = await resolveRequestUserId(body.userId);
     const conversationId = requiredString(body.conversationId, "conversationId");
     const query = [body.query, body.name, body.role, body.company].filter(Boolean).join(" ").trim();
     if (!query) {
       throw new HttpError(400, "VALIDATION_ERROR", "Candidate or query input is required.");
     }
-    if (!(await conversationBelongsToUser(conversationId, userId))) {
+    if (!(await conversationBelongsToUserId(conversationId, userId))) {
       throw new HttpError(422, "ENRICHMENT_NOT_ALLOWED", "Contact was not captured by this user.");
     }
 

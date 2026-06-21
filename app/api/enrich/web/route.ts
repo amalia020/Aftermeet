@@ -1,5 +1,6 @@
 import type { WebFallbackRequest } from "@/lib/types";
-import { conversationBelongsToUser } from "@/lib/db/queries";
+import { resolveRequestUserId } from "@/lib/auth/request";
+import { conversationBelongsToUserId } from "@/lib/db/store";
 import { geminiWebContext } from "@/lib/providers/gemini";
 import { createSourceRecord } from "@/lib/intelligence/sourceConfidence";
 import { inferSourceTypeFromUrl } from "@/lib/intelligence/utils";
@@ -24,7 +25,7 @@ function sourceNameFromUrl(url: string): string {
 export async function POST(request: Request) {
   try {
     const body = await parseJsonBody<WebFallbackRequest>(request);
-    const userId = requiredString(body.userId, "userId");
+    const userId = await resolveRequestUserId(body.userId);
     const conversationId = requiredString(body.conversationId, "conversationId");
     const query = requiredString(body.query, "query");
     if (body.calaAttempted !== true) {
@@ -34,7 +35,7 @@ export async function POST(request: Request) {
         "Web fallback cannot run before Cala is attempted."
       );
     }
-    if (!(await conversationBelongsToUser(conversationId, userId))) {
+    if (!(await conversationBelongsToUserId(conversationId, userId))) {
       throw new HttpError(422, "ENRICHMENT_NOT_ALLOWED", "Contact was not captured by this user.");
     }
 

@@ -13,6 +13,16 @@ import {
   listSourceRecords,
 } from "@/lib/db/queries";
 import {
+  getActiveObjectiveForUser,
+  getContactForUser,
+  getDraftForRecommendationForUser,
+  listEvidenceFactsForContact,
+  listContactsForUser,
+  listRecommendationsForUser,
+  listSourceRecordsForContact,
+} from "@/lib/db/store";
+import { shouldUseSupabaseDatabase } from "@/lib/db/runtime";
+import {
   dailyBrief as demoDailyBrief,
   missionRadar as demoMissionRadar,
   outcomeLoop as demoOutcomeLoop,
@@ -173,6 +183,16 @@ export interface OutcomeLoopViewModel extends TractionViewModel {
     kind: "positive" | "neutral" | "negative";
     outcomeType: OutcomeType;
   }[];
+}
+
+export function getNavigationItems(): { key: string; href: string; label: string }[] {
+  return [
+    { key: "today", href: "/today", label: "Today" },
+    { key: "radar", href: "/radar", label: "Radar" },
+    { key: "capture", href: "/capture", label: "Capture" },
+    { key: "people", href: "/board", label: "People" },
+    { key: "progress", href: "/traction", label: "Progress" },
+  ];
 }
 
 const ALL_OPPORTUNITY_TYPES: OpportunityType[] = [
@@ -474,7 +494,7 @@ export function getDailyBriefViewModel(userId = DEMO_USER_ID): DailyBriefViewMod
     objective,
     generatedAt: new Date().toISOString()
   });
-  const moves = dailyMoves.map(buildPart5Move);
+  const moves = dailyMoves.slice(0, 3).map(buildPart5Move);
   const scoredMoves = scoreStoredRelationshipMoves({
     userId,
     objective,
@@ -502,6 +522,55 @@ export function getDailyBriefViewModel(userId = DEMO_USER_ID): DailyBriefViewMod
       { label: "Today", value: String(moves.length), note: "high-leverage moves" },
       { label: "Warm", value: String(listContacts(userId).length), note: "relationships captured" },
       { label: "Blocked", value: String(sentOrWaiting), note: "waiting or hold states" },
+    ],
+  };
+}
+
+function buildRecommendationMove(rec: ActionRecommendation, contact: Contact | null): BriefMove {
+  const name = contact?.name ?? "Unknown contact";
+  return {
+    id: rec.id,
+    name,
+    role: [contact?.company, formatAction(rec.recommendedAction)].filter(Boolean).join(" · "),
+    initials: initials(name),
+    signal: rec.recommendedAction === "MAKE_INTRO" ? "network" : "follow",
+    label: "Next move",
+    action: formatAction(rec.recommendedAction),
+    reason: firstReason(rec),
+    whyNow: rec.explanation.whyThisAction,
+    whatToAvoid: [firstAvoidance(rec)],
+    costOfSilence: rec.urgencyScore >= 0.65 ? "High cost of silence" : "Low cost to wait",
+    href: `/contacts/${rec.contactId}`,
+  };
+}
+
+export async function getDailyBriefViewModelForUser(userId = DEMO_USER_ID): Promise<DailyBriefViewModel> {
+  if (!shouldUseSupabaseDatabase()) return getDailyBriefViewModel(userId);
+
+  const objective = await getActiveObjectiveForUser(userId);
+  const baseObjective = objective ?? defaultObjective(userId);
+  const recs = (await listRecommendationsForUser(userId))
+    .filter((rec) => rec.status === "pending")
+    .slice(0, 3);
+  const moves = await Promise.all(
+    recs.map(async (rec) => buildRecommendationMove(rec, await getContactForUser(rec.contactId))),
+  );
+  const contacts = await listContactsForUser(userId);
+
+  return {
+    activeObjective: baseObjective,
+    missionTitle: missionTitle(baseObjective),
+    missionContext: baseObjective.eventContext ?? "Setup",
+    currentDate: formatDate(),
+    headline: moves.length
+      ? `${moves.length} relationship move${moves.length === 1 ? "" : "s"} to make today`
+      : "No relationship moves yet",
+    moves,
+    missionGap: missionGap(baseObjective),
+    proof: [
+      { label: "Today", value: String(moves.length), note: "relationship moves" },
+      { label: "Warm", value: String(contacts.length), note: "relationships captured" },
+      { label: "Blocked", value: "0", note: "waiting or hold states" },
     ],
   };
 }
@@ -576,6 +645,50 @@ export function getMissionRadarViewModel(userId = DEMO_USER_ID): MissionRadarVie
     bridges: bridges.length
       ? bridges
       : [{ from: "daily brief", to: "mission gap", label: "next relationship signal" }],
+  };
+}
+
+export async function getMissionRadarViewModelForUser(userId = DEMO_USER_ID): Promise<MissionRadarViewModel> {
+  if (!shouldUseSupabaseDatabase()) return getMissionRadarViewModel(userId);
+
+  const objective = (await getActiveObjectiveForUser(userId)) ?? defaultObjective(userId);
+  const recs = (await listRecommendationsForUser(userId)).filter((rec) => rec.status === "pending");
+  const nodes: RadarNode[] = await Promise.all(
+    recs.slice(0, 7).map(async (rec) => {
+      const contact = await getContactForUser(rec.contactId);
+      const name = contact?.name ?? "Unknown";
+      return {
+        id: rec.id,
+        name,
+        initials: initials(name),
+        x: Math.round(12 + rec.priorityScore * 78),
+        y: Math.round(12 + rec.urgencyScore * 78),
+        state: rec.urgencyScore >= 0.7 ? "action" as const : "warm" as const,
+        note: firstReason(rec),
+        href: `/contacts/${rec.contactId}`,
+      };
+    }),
+  );
+
+  nodes.push({
+    id: "mission-gap",
+    name: "Focus gap",
+    initials: "FG",
+    x: 52,
+    y: 18,
+    state: "gap",
+    note: missionGap(objective),
+  });
+
+  return {
+    objective,
+    missionTitle: missionTitle(objective),
+    nodes,
+    bridges: recs.slice(0, 3).map((rec) => ({
+      from: rec.contactId,
+      to: "focus gap",
+      label: formatAction(rec.recommendedAction),
+    })),
   };
 }
 
@@ -816,6 +929,82 @@ export function getPersonIntelligenceViewModel(
   };
 }
 
+export async function getPersonIntelligenceViewModelForUser(
+  contactId: Id,
+  userId: Id,
+): Promise<PersonIntelligenceViewModel> {
+  if (!shouldUseSupabaseDatabase()) return getPersonIntelligenceViewModel(contactId, userId);
+
+  const recs = await listRecommendationsForUser(userId);
+  const selectedRec = recs.find((rec) => rec.contactId === contactId) ?? recs[0];
+  const contact =
+    (await getContactForUser(contactId)) ??
+    (selectedRec ? await getContactForUser(selectedRec.contactId) : null);
+
+  if (!contact) return fallbackPerson();
+
+  const rec = selectedRec ?? recs.find((candidate) => candidate.contactId === contact.id);
+  const draft = rec ? await getDraftForRecommendationForUser(rec.id) : null;
+  const evidenceFacts = (await listEvidenceFactsForContact(contact.id))
+    .sort((left, right) => right.factConfidence - left.factConfidence)
+    .slice(0, 5);
+  const sourceCount = (await listSourceRecordsForContact(contact.id)).length;
+  const confidence = rec?.explanation.confidenceBreakdown;
+  const safeFacts = rec?.explanation.safeFactsUsed ?? [];
+  const facts = evidenceFacts.length
+    ? evidenceFacts.map((fact) => fact.fact)
+    : safeFacts.slice(0, 5);
+
+  const company = contact.company ?? "Unknown company";
+  const role = contact.role ?? "Relationship contact";
+
+  return {
+    contactId: contact.id,
+    state: "ready",
+    contact: {
+      name: contact.name ?? "Unknown contact",
+      role,
+      company,
+      initials: initials(contact.name),
+      location: contact.website ?? contact.linkedinUrl ?? "Captured from conversation",
+    },
+    warmth: warmthLabel(rec),
+    missionFit: missionFitLabel(confidence?.userGoalFit ?? 0.5),
+    systemNote: rec
+      ? `${facts.length || safeFacts.length} usable fact${facts.length === 1 ? "" : "s"} and ${sourceCount} public source${sourceCount === 1 ? "" : "s"} inform this recommendation.`
+      : "Captured contact is ready for enrichment and recommendation.",
+    evidence: {
+      facts,
+      sourceCount,
+      warnings: rec?.explanation.warnings ?? [],
+      confidence: {
+        entityMatch: confidence?.entityMatch ?? contact.entityMatchConfidence ?? 0,
+        sourceConfidence: confidence?.sourceConfidence ?? 0,
+        factConfidence: confidence?.factConfidence ?? 0,
+        finalConfidence: confidence?.finalConfidence ?? rec?.confidence ?? 0,
+      },
+    },
+    recommendation: {
+      id: rec?.id,
+      contactId: contact.id,
+      title: rec ? `Best move today: ${formatAction(rec.recommendedAction).toLowerCase()}` : "No recommendation yet",
+      reason:
+        rec?.explanation.whyThisAction[0] ??
+        "Capture more context before reaching out.",
+      avoid: rec?.explanation.whyNotOtherActions[0] ?? "Keep the final action user-controlled.",
+      draft: draft?.body ?? "No draft has been generated for this recommendation yet.",
+      whyNow: rec?.explanation.whyThisAction ?? [],
+      whyThisAction: rec?.explanation.whyThisAction ?? [],
+      whyNot: [],
+      whatToAvoid: rec?.explanation.whyNotOtherActions ?? [],
+      risks: rec?.explanation.warnings ?? [],
+      safeFacts,
+      blockedFacts: [],
+      costOfSilence: "Not scored by daily policy",
+    },
+  };
+}
+
 export function getOutcomeLoopViewModel(userId = DEMO_USER_ID): OutcomeLoopViewModel {
   const recs = liveRecommendations(userId);
   const target =
@@ -864,6 +1053,24 @@ export function getCaptureScreenViewModel(userId = DEMO_USER_ID): CaptureScreenV
   };
 }
 
+export async function getCaptureScreenViewModelForUser(userId = DEMO_USER_ID): Promise<CaptureScreenViewModel> {
+  if (!shouldUseSupabaseDatabase()) return getCaptureScreenViewModel(userId);
+  return {
+    activeObjective: (await getActiveObjectiveForUser(userId)) ?? defaultObjective(userId),
+    acceptableUseText:
+      "Capture your own meeting notes only. Aftermeet keeps the final recommendation user-controlled.",
+    supportedCaptureTypes: ["text", "voice", "card"],
+    state: "ready",
+  };
+}
+
 export function getObjectiveViewModel(userId = DEMO_USER_ID): OpportunityTerminalViewModel["activeObjective"] {
   return activeObjective(userId);
+}
+
+export async function getObjectiveViewModelForUser(
+  userId = DEMO_USER_ID,
+): Promise<OpportunityTerminalViewModel["activeObjective"]> {
+  if (!shouldUseSupabaseDatabase()) return getObjectiveViewModel(userId);
+  return (await getActiveObjectiveForUser(userId)) ?? defaultObjective(userId);
 }

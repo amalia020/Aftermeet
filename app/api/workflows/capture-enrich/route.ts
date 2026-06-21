@@ -1,7 +1,8 @@
 import { POST as postTextCapture } from "@/app/api/capture/text/route";
 import { POST as postCalaEnrich } from "@/app/api/enrich/cala/route";
 import { POST as postWebFallback } from "@/app/api/enrich/web/route";
-import { getActiveObjective, saveUserObjective } from "@/lib/db/queries";
+import { resolveRequestUserId } from "@/lib/auth/request";
+import { getActiveObjectiveForUser, saveUserObjectiveForUser } from "@/lib/db/store";
 import {
   errorResponse,
   HttpError,
@@ -49,17 +50,17 @@ function buildObjectiveSeed(
 export async function POST(request: Request) {
   try {
     const body = await parseJsonBody<WorkflowCaptureEnrichRequest>(request);
-    const userId = requiredString(body.userId, "userId");
+    const userId = await resolveRequestUserId(body.userId);
     const rawText = requiredString(body.rawText, "rawText");
 
     const ensureObjective = body.ensureObjective !== false;
-    let objective = await getActiveObjective(userId);
+    let objective = await getActiveObjectiveForUser(userId);
     let objectiveCreated = false;
     if (!objective) {
       if (!ensureObjective) {
         throw new HttpError(422, "OBJECTIVE_REQUIRED", "No active objective is available.");
       }
-      objective = await saveUserObjective(buildObjectiveSeed(userId, body));
+      objective = await saveUserObjectiveForUser(buildObjectiveSeed(userId, body));
       objectiveCreated = true;
     }
 

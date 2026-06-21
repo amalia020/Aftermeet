@@ -13,18 +13,17 @@
  */
 
 import { NextResponse } from "next/server";
+import { resolveRequestUserId } from "@/lib/auth/request";
 import {
-  DEMO_USER_ID,
-  getContact,
-  getActiveObjective,
-  getRecommendation,
-  listEvidenceFacts,
-  saveDraft,
-} from "@/lib/db/queries";
+  getActiveObjectiveForUser,
+  getContactForUser,
+  getRecommendationForUser,
+  listEvidenceFactsForContact,
+  saveDraftForUser,
+} from "@/lib/db/store";
 import { actionImpliesMessage } from "@/lib/intelligence/actionPolicy";
 import { factsAllowedInDraft } from "@/lib/intelligence/draftPolicy";
 import { generateDraft } from "@/lib/intelligence/draftGeneration";
-import { part1DemoObjective } from "@/lib/demo/savedExamples";
 import { part2DemoEvidenceBundle } from "@/lib/demo/fixtures";
 import type {
   DraftGenerateRequest,
@@ -53,8 +52,17 @@ export async function POST(request: Request) {
     );
   }
 
-  const userId = body.userId ?? DEMO_USER_ID;
-  const recommendation = getRecommendation(body.recommendationId);
+  let userId: string;
+  try {
+    userId = await resolveRequestUserId(body.userId);
+  } catch {
+    return NextResponse.json<ErrorResponse>(
+      { error: "UNAUTHORIZED", message: "User session is required." },
+      { status: 401 },
+    );
+  }
+
+  const recommendation = await getRecommendationForUser(body.recommendationId);
   if (!recommendation || recommendation.userId !== userId) {
     return NextResponse.json<ErrorResponse>(
       {
@@ -75,11 +83,17 @@ export async function POST(request: Request) {
     );
   }
 
-  const contact = getContact(recommendation.contactId);
-  const objective = getActiveObjective(userId) ?? part1DemoObjective;
+  const contact = await getContactForUser(recommendation.contactId);
+  const objective = await getActiveObjectiveForUser(userId);
+  if (!objective) {
+    return NextResponse.json<ErrorResponse>(
+      { error: "OBJECTIVE_REQUIRED", message: "No active objective is available." },
+      { status: 422 },
+    );
+  }
 
   // Pull facts for this contact; fall back to the demo bundle facts.
-  let facts: EvidenceFact[] = listEvidenceFacts(recommendation.contactId);
+  let facts: EvidenceFact[] = await listEvidenceFactsForContact(recommendation.contactId);
   if (facts.length === 0) facts = part2DemoEvidenceBundle.evidenceFacts;
   const safeFacts = factsAllowedInDraft(facts);
 
@@ -104,7 +118,7 @@ export async function POST(request: Request) {
     now: new Date(),
   });
 
-  saveDraft(draft);
+  await saveDraftForUser(draft, userId);
 
   const response: DraftGenerateResponse = {
     draft,

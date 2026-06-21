@@ -12,13 +12,15 @@ import { NextResponse } from "next/server";
 import { resolveRequestUserId } from "@/lib/auth/request";
 import {
   DEMO_USER_ID,
-  getContact,
-  getRecommendation,
-  getRecommendationForContact,
-  listOutcomes,
-  saveOutcome,
-  saveRecommendation,
 } from "@/lib/db/queries";
+import {
+  getContactForUser,
+  getRecommendationForContactForUser,
+  getRecommendationForUser,
+  listOutcomesForUser,
+  saveOutcomeForUser,
+  saveRecommendationForUser,
+} from "@/lib/db/store";
 import { conversionRatesForType } from "@/lib/intelligence/feedbackLearning";
 import { deterministicId } from "@/lib/utils";
 import type {
@@ -116,9 +118,9 @@ function computeTraction(outcomes: OutcomeSummary[]): TractionSummary {
   };
 }
 
-function toSummaries(outcomes: Outcome[]): OutcomeSummary[] {
-  return outcomes.map((o) => {
-    const rec = o.recommendationId ? getRecommendation(o.recommendationId) : undefined;
+async function toSummaries(outcomes: Outcome[]): Promise<OutcomeSummary[]> {
+  const summaries = await Promise.all(outcomes.map(async (o) => {
+    const rec = o.recommendationId ? await getRecommendationForUser(o.recommendationId) : undefined;
     const opportunityType = rec?.explanation.chosenRoute.type;
     return {
       opportunityType,
@@ -126,7 +128,8 @@ function toSummaries(outcomes: Outcome[]): OutcomeSummary[] {
       createdAt: o.createdAt,
       value: o.value ?? null,
     } satisfies OutcomeSummary;
-  });
+  }));
+  return summaries;
 }
 
 export async function GET() {
@@ -140,8 +143,8 @@ export async function GET() {
       { status: 401 },
     );
   }
-  const outcomes = listOutcomes(userId);
-  const traction = computeTraction(toSummaries(outcomes));
+  const outcomes = await listOutcomesForUser(userId);
+  const traction = computeTraction(await toSummaries(outcomes));
   return NextResponse.json<TractionSummary>(traction, { status: 200 });
 }
 
@@ -181,7 +184,7 @@ export async function POST(request: Request) {
   }
 
   // Contact must be accessible (best-effort in the single-tenant demo store).
-  const contact = getContact(body.contactId);
+  const contact = await getContactForUser(body.contactId);
   if (contact && contact.userId !== userId) {
     return NextResponse.json<ErrorResponse>(
       { error: "CONTACT_NOT_FOUND", message: "User cannot access this contact." },
@@ -200,23 +203,23 @@ export async function POST(request: Request) {
     value: body.value ?? null,
     createdAt: nowIso,
   };
-  saveOutcome(outcome);
+  await saveOutcomeForUser(outcome);
 
   // Update the linked recommendation status, if any.
   let updatedRecommendation: ActionRecommendation | undefined;
   const rec =
     (body.recommendationId
-      ? getRecommendation(body.recommendationId)
-      : undefined) ?? getRecommendationForContact(body.contactId);
+      ? await getRecommendationForUser(body.recommendationId)
+      : undefined) ?? (await getRecommendationForContactForUser(body.contactId));
   if (rec) {
     const nextStatus = statusForOutcome(body.outcomeType);
     if (nextStatus) {
       updatedRecommendation = { ...rec, status: nextStatus };
-      saveRecommendation(updatedRecommendation);
+      await saveRecommendationForUser(updatedRecommendation);
     }
   }
 
-  const traction = computeTraction(toSummaries(listOutcomes(userId)));
+  const traction = computeTraction(await toSummaries(await listOutcomesForUser(userId)));
 
   const response: OutcomeCreateResponse = {
     outcome,

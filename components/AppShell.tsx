@@ -5,11 +5,12 @@ import {
   Blocks,
   ClipboardCheck,
   Radio,
+  Radar,
   RefreshCcw,
   Target,
 } from "lucide-react";
 
-type NavKey = "today" | "capture" | "people" | "progress" | "setup";
+type NavKey = "today" | "radar" | "capture" | "people" | "progress" | "setup";
 
 interface AppShellProps {
   active: NavKey;
@@ -22,7 +23,8 @@ const navItems: {
   label: string;
   icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
 }[] = [
-  { key: "today", href: "/", label: "Today", icon: ClipboardCheck },
+  { key: "today", href: "/today", label: "Today", icon: ClipboardCheck },
+  { key: "radar", href: "/radar", label: "Radar", icon: Radar },
   { key: "capture", href: "/capture", label: "Capture", icon: Radio },
   { key: "people", href: "/board", label: "People", icon: Blocks },
   { key: "progress", href: "/traction", label: "Progress", icon: RefreshCcw },
@@ -32,7 +34,7 @@ export function AppShell({ active, children }: AppShellProps) {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <Link aria-label="Aftermeet home" className="brand-lockup" href="/">
+        <Link aria-label="Aftermeet home" className="brand-lockup" href="/login">
           <Image alt="" className="brand-icon" priority src={appIcon} />
           <span>Aftermeet</span>
         </Link>

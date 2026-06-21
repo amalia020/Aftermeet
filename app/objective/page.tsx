@@ -1,13 +1,13 @@
 import { AppShell } from "@/components/AppShell";
 import { ObjectiveEditor } from "@/components/ObjectiveEditor";
-import { getObjectiveViewModel } from "@/lib/frontend/viewModels";
+import { getObjectiveViewModelForUser } from "@/lib/frontend/viewModels";
 import { requireAppUser } from "@/lib/auth/server";
 
 export const dynamic = "force-dynamic";
 
 export default async function ObjectivePage() {
   const user = await requireAppUser();
-  const objective = getObjectiveViewModel(user.id);
+  const objective = await getObjectiveViewModelForUser(user.id);
 
   return (
     <AppShell active="setup">

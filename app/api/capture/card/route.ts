@@ -1,16 +1,16 @@
-import { createConversation, getActiveObjective } from "@/lib/db/queries";
+import { resolveRequestUserId } from "@/lib/auth/request";
+import { createConversationForUser, getActiveObjectiveForUser } from "@/lib/db/store";
 import {
   createRequestId,
   errorResponse,
   HttpError,
-  jsonResponse,
-  requiredString
+  jsonResponse
 } from "@/lib/server/http";
 
 export const runtime = "nodejs";
 
 async function readCardInput(request: Request): Promise<{
-  userId: string;
+  userId?: string;
   manualTextFallback?: string;
   eventContext?: string;
   hasImage: boolean;
@@ -19,7 +19,7 @@ async function readCardInput(request: Request): Promise<{
   if (contentType.includes("multipart/form-data")) {
     const form = await request.formData();
     return {
-      userId: requiredString(form.get("userId"), "userId"),
+      userId: typeof form.get("userId") === "string" ? String(form.get("userId")) : undefined,
       manualTextFallback:
         typeof form.get("manualTextFallback") === "string"
           ? String(form.get("manualTextFallback"))
@@ -37,7 +37,7 @@ async function readCardInput(request: Request): Promise<{
     imageFile?: unknown;
   };
   return {
-    userId: requiredString(body.userId, "userId"),
+    userId: body.userId,
     manualTextFallback: body.manualTextFallback,
     eventContext: body.eventContext,
     hasImage: Boolean(body.imageFile)
@@ -48,6 +48,7 @@ export async function POST(request: Request) {
   const requestId = createRequestId();
   try {
     const input = await readCardInput(request);
+    const userId = await resolveRequestUserId(input.userId);
     if (!input.manualTextFallback && !input.hasImage) {
       throw new HttpError(
         400,
@@ -62,13 +63,13 @@ export async function POST(request: Request) {
         "Card OCR is disabled in demo mode; provide manual text fallback."
       );
     }
-    const objective = await getActiveObjective(input.userId);
+    const objective = await getActiveObjectiveForUser(userId);
     if (!objective) {
       throw new HttpError(422, "OBJECTIVE_REQUIRED", "No active objective is available.");
     }
 
-    const conversation = await createConversation({
-      userId: input.userId,
+    const conversation = await createConversationForUser({
+      userId,
       rawText: input.manualTextFallback ?? "",
       captureType: "card",
       eventContext: input.eventContext ?? objective.eventContext ?? null

@@ -29,10 +29,11 @@ import type {
 } from "@/lib/types";
 import { clamp01, deterministicId, extractDomain, freshnessScore } from "@/lib/utils";
 import {
-  saveEvidenceFact,
-  savePublicContext,
-  saveSourceRecord,
-} from "@/lib/db/queries";
+  saveEvidenceBundleForUser,
+  saveEvidenceFactForUser,
+  savePublicContextForUser,
+  saveSourceRecordForUser,
+} from "@/lib/db/store";
 import { part2DemoEvidenceBundle } from "@/lib/demo/fixtures";
 import {
   calaKnowledgeQuery,
@@ -306,11 +307,11 @@ async function runEnrichment(
   }
 
   // 7. Persist.
-  for (const src of sourceRecords) saveSourceRecord(src);
-  for (const ctx of publicContext) savePublicContext(ctx);
-  for (const fact of evidenceFacts) saveEvidenceFact(fact);
+  for (const src of sourceRecords) await saveSourceRecordForUser(src, input.userId);
+  for (const ctx of publicContext) await savePublicContextForUser(ctx, input.userId);
+  for (const fact of evidenceFacts) await saveEvidenceFactForUser(fact, input.userId);
 
-  return {
+  const bundle: EvidenceBundle = {
     requestId: input.requestId,
     userId: input.userId,
     conversationId,
@@ -328,6 +329,8 @@ async function runEnrichment(
       warnings,
     },
   };
+  await saveEvidenceBundleForUser(bundle);
+  return bundle;
 }
 
 /**

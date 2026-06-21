@@ -1,6 +1,6 @@
 import type { TextCaptureRequest } from "@/lib/types";
 import { resolveRequestUserId } from "@/lib/auth/request";
-import { createConversation, getActiveObjective } from "@/lib/db/queries";
+import { createConversationForUser, getActiveObjectiveForUser } from "@/lib/db/store";
 import {
   createRequestId,
   errorResponse,
@@ -25,12 +25,12 @@ export async function POST(request: Request) {
         rawText: `max ${MAX_RAW_TEXT_LENGTH} characters`
       });
     }
-    const objective = await getActiveObjective(userId);
+    const objective = await getActiveObjectiveForUser(userId);
     if (!objective) {
       throw new HttpError(422, "OBJECTIVE_REQUIRED", "No active objective is available.");
     }
 
-    const conversation = await createConversation({
+    const conversation = await createConversationForUser({
       userId,
       rawText,
       captureType: "text",

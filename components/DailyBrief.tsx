@@ -4,6 +4,8 @@ import { Avatar } from "@/components/Avatar";
 import type { DailyBriefViewModel } from "@/lib/frontend/viewModels";
 
 export function DailyBrief({ brief }: { brief: DailyBriefViewModel }) {
+  const [heroMove, ...secondaryMoves] = brief.moves;
+
   return (
     <section className="screen daily-brief">
       <div className="screen-kicker">Today</div>
@@ -33,43 +35,26 @@ export function DailyBrief({ brief }: { brief: DailyBriefViewModel }) {
         ))}
       </div>
 
-      <div className="move-stack">
-        {brief.moves.map((move) => {
-          const content = (
-            <>
-              <Avatar initials={move.initials} tone={move.signal === "network" ? "signal" : "cool"} />
-              <div className="move-copy">
-                <div className="move-row">
-                  <strong>{move.name}</strong>
-                  <span className={`pill pill-${move.signal}`}>{move.label}</span>
-                </div>
-                <p>{move.action}</p>
-                <small>{move.reason}</small>
-                <div className="move-policy-row">
-                  <span>{move.costOfSilence}</span>
-                  {move.whatToAvoid[0] ? (
-                    <span>
-                      <ShieldAlert size={13} />
-                      {move.whatToAvoid[0]}
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-              <ArrowRight className="move-arrow" size={18} />
-            </>
-          );
-
-          return move.href ? (
-            <Link className="move-card" href={move.href} key={move.id}>
-              {content}
-            </Link>
-          ) : (
-            <article className="move-card" key={move.id}>
-              {content}
-            </article>
-          );
-        })}
-      </div>
+      {heroMove ? (
+        <div className="move-stack">
+          <MoveCard move={heroMove} />
+          {secondaryMoves.map((move) => (
+            <MoveCard key={move.id} move={move} />
+          ))}
+        </div>
+      ) : (
+        <article className="attention-card">
+          <div className="attention-label">
+            <Radio size={18} />
+            <span>Next step</span>
+          </div>
+          <p>No relationship moves yet. Capture a note from a meeting, card, or voice transcript to create your first action.</p>
+          <Link className="primary-action" href="/capture">
+            <Radio size={17} />
+            <span>Capture note</span>
+          </Link>
+        </article>
+      )}
 
       {brief.cooling ? (
         <article className="attention-card cooling-card">
@@ -101,11 +86,47 @@ export function DailyBrief({ brief }: { brief: DailyBriefViewModel }) {
           <span>Focus gap</span>
         </div>
         <p>{brief.missionGap}</p>
-        <Link className="primary-action" href="/board">
+        <Link className="primary-action" href="/radar">
           <Search size={17} />
-          <span>View people</span>
+          <span>Open radar</span>
         </Link>
       </article>
     </section>
+  );
+}
+
+function MoveCard({ move }: { move: DailyBriefViewModel["moves"][number] }) {
+          const content = (
+            <>
+              <Avatar initials={move.initials} tone={move.signal === "network" ? "signal" : "cool"} />
+              <div className="move-copy">
+                <div className="move-row">
+                  <strong>{move.name}</strong>
+                  <span className={`pill pill-${move.signal}`}>{move.label}</span>
+                </div>
+                <p>{move.action}</p>
+                <small>{move.reason}</small>
+                <div className="move-policy-row">
+                  <span>{move.costOfSilence}</span>
+                  {move.whatToAvoid[0] ? (
+                    <span>
+                      <ShieldAlert size={13} />
+                      {move.whatToAvoid[0]}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+              <ArrowRight className="move-arrow" size={18} />
+            </>
+          );
+
+  return move.href ? (
+    <Link className="move-card" href={move.href}>
+      {content}
+    </Link>
+  ) : (
+    <article className="move-card">
+      {content}
+    </article>
   );
 }

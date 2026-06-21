@@ -1,35 +1,12 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { createServerClient } from "@supabase/ssr";
-import { DEMO_USER_ID, getActiveObjective } from "@/lib/db/queries";
-import { isSupabaseConfigured, getSupabasePublicConfig } from "@/lib/auth/config";
+import { DEMO_USER_ID } from "@/lib/db/queries";
+import { isSupabaseConfigured } from "@/lib/auth/config";
+import { createSupabaseServerClient } from "@/lib/auth/supabaseServer";
+import { getActiveObjectiveForUser } from "@/lib/db/store";
 
 export interface AppUser {
   id: string;
   email?: string | null;
-}
-
-export async function createSupabaseServerClient() {
-  const { url, anonKey } = getSupabasePublicConfig();
-  if (!url || !anonKey) return null;
-  const cookieStore = await cookies();
-
-  return createServerClient(url, anonKey, {
-    cookies: {
-      getAll() {
-        return cookieStore.getAll();
-      },
-      setAll(cookiesToSet) {
-        try {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options),
-          );
-        } catch {
-          // Server Components cannot set cookies. Middleware/route handlers can.
-        }
-      },
-    },
-  });
 }
 
 export async function getCurrentAppUser(): Promise<AppUser | null> {
@@ -48,6 +25,6 @@ export async function requireAppUser(): Promise<AppUser> {
 
 export async function requireMissionUser(): Promise<AppUser> {
   const user = await requireAppUser();
-  if (!getActiveObjective(user.id)) redirect("/setup");
+  if (!(await getActiveObjectiveForUser(user.id))) redirect("/setup");
   return user;
 }

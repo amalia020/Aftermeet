@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runtimeConfig } from "@/lib/config";
+import { shouldUseSupabaseDatabase } from "@/lib/db/runtime";
 
 export const runtime = "nodejs";
 
@@ -9,7 +10,7 @@ export async function GET() {
     service: "aftermeet",
     demoMode: runtimeConfig.demoMode,
     auth: runtimeConfig.providerAvailability.supabase ? "supabase" : "demo",
-    storage: "local-json",
+    storage: shouldUseSupabaseDatabase() ? "supabase" : "local-json",
     supabaseSchema: "supabase/schema.sql",
     providers: runtimeConfig.providerAvailability,
     timestamp: new Date().toISOString(),

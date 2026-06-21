@@ -56,7 +56,7 @@ export function ObjectiveEditor({
   title = "Setup",
   kicker = "Workspace setup",
   saveLabel = "Save setup",
-  returnTo = "/",
+  returnTo = "/today",
 }: {
   objective: UserObjectiveProfile;
   title?: string;
