@@ -4,6 +4,7 @@ import { DEMO_CONTACT_ID, DEMO_CONVERSATION_ID, DEMO_USER_ID, demoExtractionResu
 import { saveConversationAtoms, saveEvidenceBundle, saveRecommendation, upsertContact } from "@/lib/db/queries";
 import { getDailyBriefViewModel, getNavigationItems } from "@/lib/frontend/viewModels";
 import { getLoginRedirectDestination, getPostLoginDestination, getRootDestination } from "@/lib/frontend/onboarding";
+import { getAuthCallbackDestination } from "@/lib/auth/callback";
 import { shouldUseSupabaseDatabase } from "@/lib/db/runtime";
 
 const generatedAt = "2026-06-20T10:30:00.000Z";
@@ -47,6 +48,14 @@ describe("production onboarding and brief flow", () => {
     expect(getLoginRedirectDestination({ hasSession: false, hasObjective: false })).toBeNull();
     expect(getLoginRedirectDestination({ hasSession: true, hasObjective: false })).toBe("/setup");
     expect(getLoginRedirectDestination({ hasSession: true, hasObjective: true })).toBe("/today");
+  });
+
+  it("never sends completed magic-link callbacks back to login by default", () => {
+    expect(getAuthCallbackDestination({ requestedNext: null, hasSession: true, hasObjective: false })).toBe("/setup");
+    expect(getAuthCallbackDestination({ requestedNext: null, hasSession: true, hasObjective: true })).toBe("/today");
+    expect(getAuthCallbackDestination({ requestedNext: "/capture", hasSession: true, hasObjective: false })).toBe("/setup");
+    expect(getAuthCallbackDestination({ requestedNext: "/capture", hasSession: true, hasObjective: true })).toBe("/capture");
+    expect(getAuthCallbackDestination({ requestedNext: "//evil.example", hasSession: true, hasObjective: true })).toBe("/today");
   });
 
   it("routes authenticated users without a mission to setup before Today", () => {

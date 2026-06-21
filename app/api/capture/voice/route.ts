@@ -51,6 +51,7 @@ export async function POST(request: Request) {
         streamUrl: `/api/intelligence/process?conversationId=${encodeURIComponent(
           conversation.id
         )}&requestId=${encodeURIComponent(requestId)}`,
+        transcript: transcription.transcript,
         transcriptStatus: transcription.transcript ? "completed" : "fallback_required"
       },
       202

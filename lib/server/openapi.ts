@@ -254,6 +254,23 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
           }
         }
       },
+      "/api/realtime/transcription/session": {
+        post: {
+          tags: ["Capture"],
+          summary: "Create a short-lived realtime transcription session",
+          description:
+            "Returns an ephemeral client secret for mobile live transcription. Requires an authenticated user in Supabase mode and an OpenAI API key.",
+          requestBody: jsonRequest(ref("RealtimeTranscriptionSessionRequest"), {
+            userId: DEMO_USER_ID
+          }),
+          responses: {
+            "200": jsonResponse(ref("RealtimeTranscriptionSessionResponse")),
+            "401": jsonResponse(ref("ErrorResponse"), "Missing Supabase session"),
+            "503": jsonResponse(ref("ErrorResponse"), "Realtime transcription not configured"),
+            ...errorResponses()
+          }
+        }
+      },
       "/api/intelligence/process": {
         get: {
           tags: ["Intelligence"],
@@ -675,6 +692,7 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
             {
               type: "object",
               properties: {
+                transcript: stringSchema,
                 transcriptStatus: {
                   type: "string",
                   enum: ["pending", "completed", "fallback_required"]
@@ -690,11 +708,33 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
             {
               type: "object",
               properties: {
-                cardStatus: { type: "string", enum: ["captured", "manual_fallback"] }
+                cardText: stringSchema,
+                cardStatus: { type: "string", enum: ["captured", "manual_fallback"] },
+                contactCandidate: ref("ContactCandidate"),
+                recognitionProvider: stringSchema,
+                recognitionModel: stringSchema,
+                warnings: { type: "array", items: stringSchema }
               },
               required: ["cardStatus"]
             }
           ]
+        },
+        RealtimeTranscriptionSessionRequest: {
+          type: "object",
+          properties: {
+            userId: stringSchema
+          }
+        },
+        RealtimeTranscriptionSessionResponse: {
+          type: "object",
+          properties: {
+            clientSecret: stringSchema,
+            expiresAt: { type: "number" },
+            model: stringSchema,
+            language: stringSchema,
+            delay: stringSchema
+          },
+          required: ["clientSecret", "model", "language", "delay"]
         },
         ProcessConversationRequestBody: {
           type: "object",

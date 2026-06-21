@@ -1,23 +1,63 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import Link from "next/link";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  Camera,
   CheckCircle2,
+  ImageUp,
   Loader2,
   Mic,
   Radio,
   ScanLine,
+  X,
 } from "lucide-react";
 import type {
   CaptureScreenViewModel,
+  CaptureAcceptedResponse,
+  CardCaptureAcceptedResponse,
+  EvidenceBundle,
   ErrorResponse,
+  ExtractionHandoff,
+  ProcessStageEvent,
+  RecommendationPackage,
+  VoiceCaptureAcceptedResponse,
   WorkflowFullFlowResponse,
   WorkflowObjectiveSeed,
   CaptureType,
 } from "@/lib/types";
+import { captureStageLabel, confidenceLevel, CONFIDENCE_LABELS } from "@/lib/copy";
 
 type SubmissionState = "idle" | "submitting" | "success" | "error";
+type RecordingState = "idle" | "recording" | "recorded";
+
+interface RealtimeSessionResponse {
+  clientSecret: string;
+  delay: string;
+  language: string;
+  model: string;
+}
+
+interface RealtimeTranscriptionEvent {
+  type?: string;
+  delta?: string;
+  item_id?: string;
+  transcript?: string;
+  error?: {
+    message?: string;
+  };
+}
+
+interface ActiveCaptureState {
+  requestId: string;
+  conversationId: string;
+  streamUrl: string;
+  captureMode: CaptureType;
+  note: string;
+}
+
+const ACTIVE_CAPTURE_STORAGE_KEY = "aftermeet.activeCapture";
 
 function formatAction(action: string): string {
   return action
@@ -25,10 +65,6 @@ function formatAction(action: string): string {
     .split("_")
     .map((part) => part[0]?.toUpperCase() + part.slice(1))
     .join(" ");
-}
-
-function formatScore(score: number): string {
-  return `${Math.round(score * 100)}%`;
 }
 
 function formatGoal(value: string): string {
@@ -39,6 +75,53 @@ function formatGoal(value: string): string {
     .join(" ");
 }
 
+function supportedAudioMimeType(): string | undefined {
+  if (typeof MediaRecorder === "undefined") return undefined;
+  return [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+  ].find((type) => MediaRecorder.isTypeSupported(type));
+}
+
+function audioFileExtension(mimeType: string): string {
+  if (mimeType.includes("mp4")) return "m4a";
+  if (mimeType.includes("mpeg")) return "mp3";
+  if (mimeType.includes("ogg")) return "ogg";
+  return "webm";
+}
+
+function loadActiveCaptureState(): ActiveCaptureState | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(ACTIVE_CAPTURE_STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<ActiveCaptureState>;
+    if (
+      typeof parsed.requestId !== "string" ||
+      typeof parsed.conversationId !== "string" ||
+      typeof parsed.streamUrl !== "string" ||
+      (parsed.captureMode !== "text" && parsed.captureMode !== "voice" && parsed.captureMode !== "card") ||
+      typeof parsed.note !== "string"
+    ) {
+      return null;
+    }
+    return parsed as ActiveCaptureState;
+  } catch {
+    return null;
+  }
+}
+
+function saveActiveCaptureState(state: ActiveCaptureState) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(ACTIVE_CAPTURE_STORAGE_KEY, JSON.stringify(state));
+}
+
+function clearActiveCaptureState() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(ACTIVE_CAPTURE_STORAGE_KEY);
+}
+
 export function CaptureSignal({
   viewModel,
 }: {
@@ -47,61 +130,579 @@ export function CaptureSignal({
   const [note, setNote] = useState("");
   const [captureMode, setCaptureMode] = useState<CaptureType>("text");
   const [state, setState] = useState<SubmissionState>("idle");
+  const [recordingState, setRecordingState] = useState<RecordingState>("idle");
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [cardImage, setCardImage] = useState<File | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [transcriptStatus, setTranscriptStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<WorkflowFullFlowResponse | null>(null);
+  const [processEvents, setProcessEvents] = useState<ProcessStageEvent[]>([]);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const cardInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const realtimeChannelRef = useRef<RTCDataChannel | null>(null);
+  const realtimeItemsRef = useRef<Map<string, string>>(new Map());
+  const realtimeItemOrderRef = useRef<string[]>([]);
+  const realtimePeerRef = useRef<RTCPeerConnection | null>(null);
+  const realtimeTimeoutRef = useRef<number | null>(null);
+  const resumeAttemptedRef = useRef(false);
 
-  const objectiveSeed = useMemo<WorkflowObjectiveSeed>(
-    () => ({
-      role: viewModel.activeObjective.role,
-      primaryGoal: viewModel.activeObjective.primaryGoal,
-      activeGoals: viewModel.activeObjective.activeGoals,
-      secondaryGoals: viewModel.activeObjective.secondaryGoals,
-      eventContext: viewModel.activeObjective.eventContext ?? undefined,
-      companyName: viewModel.activeObjective.companyName ?? undefined,
-      productDescription:
-        viewModel.activeObjective.productDescription ?? undefined,
-      targetCustomer: viewModel.activeObjective.targetCustomer ?? undefined,
-      attentionBudgetToday: viewModel.activeObjective.attentionBudgetToday,
-      preferredTone: viewModel.activeObjective.preferredTone,
-      constraints: viewModel.activeObjective.constraints,
-    }),
+  const objectiveSeed = useMemo<WorkflowObjectiveSeed | null>(
+    () =>
+      viewModel.activeObjective
+        ? {
+            role: viewModel.activeObjective.role,
+            primaryGoal: viewModel.activeObjective.primaryGoal,
+            activeGoals: viewModel.activeObjective.activeGoals,
+            secondaryGoals: viewModel.activeObjective.secondaryGoals,
+            eventContext: viewModel.activeObjective.eventContext ?? undefined,
+            companyName: viewModel.activeObjective.companyName ?? undefined,
+            productDescription:
+              viewModel.activeObjective.productDescription ?? undefined,
+            targetCustomer: viewModel.activeObjective.targetCustomer ?? undefined,
+            attentionBudgetToday: viewModel.activeObjective.attentionBudgetToday,
+            preferredTone: viewModel.activeObjective.preferredTone,
+            constraints: viewModel.activeObjective.constraints,
+          }
+        : null,
     [viewModel.activeObjective],
   );
 
+  useEffect(() => {
+    return () => {
+      mediaRecorderRef.current?.stop();
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+      cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+      closeRealtimeConnection();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (cameraOpen && cameraVideoRef.current && cameraStreamRef.current) {
+      cameraVideoRef.current.srcObject = cameraStreamRef.current;
+    }
+  }, [cameraOpen]);
+
+  useEffect(() => {
+    if (resumeAttemptedRef.current) return;
+    resumeAttemptedRef.current = true;
+
+    const pending = loadActiveCaptureState();
+    if (!pending) return;
+
+    setCaptureMode(pending.captureMode);
+    if (pending.note) {
+      setNote(pending.note);
+    }
+    setState("submitting");
+    setError(null);
+    setProcessEvents([]);
+
+    void consumeProcessStream(
+      {
+        requestId: pending.requestId,
+        conversationId: pending.conversationId,
+        status: "processing",
+        streamUrl: pending.streamUrl,
+      },
+      {
+        captureMode: pending.captureMode,
+        note: pending.note,
+      },
+    )
+      .then((payload) => {
+        setResult(payload);
+        setState("success");
+      })
+      .catch((caught) => {
+        setResult(null);
+        setState("error");
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "We couldn't reconnect to the background processing.",
+        );
+      });
+  }, []);
+
+  const setRealtimeItemTranscript = (itemId: string, transcript: string) => {
+    if (!realtimeItemsRef.current.has(itemId)) {
+      realtimeItemOrderRef.current.push(itemId);
+    }
+    realtimeItemsRef.current.set(itemId, transcript);
+    const nextTranscript = realtimeItemOrderRef.current
+      .map((id) => realtimeItemsRef.current.get(id))
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    setNote(nextTranscript);
+  };
+
+  const handleRealtimeEvent = (event: RealtimeTranscriptionEvent) => {
+    if (event.type === "conversation.item.input_audio_transcription.delta" && event.delta) {
+      const itemId = event.item_id ?? "current";
+      const currentTranscript = realtimeItemsRef.current.get(itemId) ?? "";
+      setRealtimeItemTranscript(itemId, `${currentTranscript}${event.delta}`);
+      setTranscriptStatus("Live transcript on");
+      return;
+    }
+
+    if (event.type === "conversation.item.input_audio_transcription.completed" && event.transcript) {
+      setRealtimeItemTranscript(event.item_id ?? "current", event.transcript);
+      setTranscriptStatus("Transcript saved");
+      return;
+    }
+
+    if (event.type === "error") {
+      setTranscriptStatus(event.error?.message ?? "Live transcript paused.");
+    }
+  };
+
+  const closeRealtimeConnection = (delayMs = 0) => {
+    if (realtimeTimeoutRef.current) {
+      window.clearTimeout(realtimeTimeoutRef.current);
+      realtimeTimeoutRef.current = null;
+    }
+
+    const close = () => {
+      realtimeChannelRef.current?.close();
+      realtimeChannelRef.current = null;
+      realtimePeerRef.current?.close();
+      realtimePeerRef.current = null;
+    };
+
+    if (delayMs > 0) {
+      realtimeTimeoutRef.current = window.setTimeout(close, delayMs);
+    } else {
+      close();
+    }
+  };
+
+  const connectRealtimeTranscription = async (stream: MediaStream) => {
+    const objective = viewModel.activeObjective;
+    if (!objective) throw new Error("Finish setup before recording a voice note.");
+    if (typeof RTCPeerConnection === "undefined") {
+      setTranscriptStatus("Live transcript isn't supported in this browser.");
+      return;
+    }
+
+    const tokenResponse = await fetch("/api/realtime/transcription/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: objective.userId }),
+    });
+    const tokenPayload = (await tokenResponse.json()) as RealtimeSessionResponse | ErrorResponse;
+    if (!tokenResponse.ok) {
+      const message =
+        "message" in tokenPayload
+          ? tokenPayload.message
+          : "Live transcript couldn't start.";
+      throw new Error(message);
+    }
+
+    const session = tokenPayload as RealtimeSessionResponse;
+    const peer = new RTCPeerConnection();
+    realtimePeerRef.current = peer;
+    stream.getAudioTracks().forEach((track) => peer.addTrack(track, stream));
+
+    const channel = peer.createDataChannel("oai-events");
+    realtimeChannelRef.current = channel;
+    channel.addEventListener("message", (messageEvent) => {
+      try {
+        handleRealtimeEvent(JSON.parse(messageEvent.data) as RealtimeTranscriptionEvent);
+      } catch {
+        setTranscriptStatus("Couldn't read the live transcript.");
+      }
+    });
+    channel.addEventListener("open", () => {
+      setTranscriptStatus(`Live transcript on (${session.language})`);
+    });
+    channel.addEventListener("error", () => {
+      setTranscriptStatus("The live transcript hit a problem.");
+    });
+
+    const offer = await peer.createOffer();
+    await peer.setLocalDescription(offer);
+    const sdpResponse = await fetch("https://api.openai.com/v1/realtime/calls", {
+      method: "POST",
+      body: offer.sdp,
+      headers: {
+        Authorization: `Bearer ${session.clientSecret}`,
+        "Content-Type": "application/sdp",
+      },
+    });
+    if (!sdpResponse.ok) {
+      throw new Error("Live transcript couldn't connect.");
+    }
+    await peer.setRemoteDescription({
+      type: "answer",
+      sdp: await sdpResponse.text(),
+    });
+  };
+
+  const stopRecording = () => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") recorder.stop();
+    if (realtimeChannelRef.current?.readyState === "open") {
+      realtimeChannelRef.current.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+    }
+    closeRealtimeConnection(1500);
+  };
+
+  const startRecording = async () => {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setState("error");
+      setError("Voice recording is not supported in this browser.");
+      return;
+    }
+
+    setCaptureMode("voice");
+    setState("idle");
+    setError(null);
+    setResult(null);
+    setAudioBlob(null);
+    setNote("");
+    setTranscriptStatus(null);
+    realtimeItemsRef.current = new Map();
+    realtimeItemOrderRef.current = [];
+    closeRealtimeConnection();
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = supportedAudioMimeType();
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      const chunks: BlobPart[] = [];
+
+      mediaStreamRef.current = stream;
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      };
+      recorder.onerror = () => {
+        setState("error");
+        setError("The voice note could not be recorded.");
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+        setAudioBlob(blob);
+        setRecordingState(blob.size > 0 ? "recorded" : "idle");
+        stream.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+        mediaRecorderRef.current = null;
+      };
+
+      try {
+        await connectRealtimeTranscription(stream);
+      } catch {
+        // Realtime transcription is optional: keep recording and fall back to
+        // server-side transcription on submit.
+        setTranscriptStatus("Live transcript unavailable - recording will still work.");
+        closeRealtimeConnection();
+      }
+      recorder.start();
+      setRecordingState("recording");
+    } catch (caught) {
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+      closeRealtimeConnection();
+      setRecordingState("idle");
+      setState("error");
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Microphone permission was not granted.",
+      );
+    }
+  };
+
+  const handleVoiceButton = async () => {
+    if (state === "submitting") return;
+    if (recordingState === "recording") {
+      stopRecording();
+      return;
+    }
+    await startRecording();
+  };
+
+  const closeCamera = () => {
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraStreamRef.current = null;
+    setCameraOpen(false);
+  };
+
+  const startCamera = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setState("error");
+      setError("Camera capture is not supported in this browser. Choose an image instead.");
+      cardInputRef.current?.click();
+      return;
+    }
+
+    setCaptureMode("card");
+    setState("idle");
+    setError(null);
+    setResult(null);
+    closeCamera();
+
+    try {
+      cameraStreamRef.current = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        }
+      });
+      setCameraOpen(true);
+    } catch (caught) {
+      setState("error");
+      setError(
+        caught instanceof Error
+          ? `Camera could not be opened: ${caught.message}`
+          : "Camera permission was not granted."
+      );
+    }
+  };
+
+  const captureCardFrame = async () => {
+    const video = cameraVideoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setState("error");
+      setError("The camera is still starting. Try again in a moment.");
+      return;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      setState("error");
+      setError("The camera frame could not be captured.");
+      return;
+    }
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.92)
+    );
+    if (!blob) {
+      setState("error");
+      setError("The camera frame could not be captured.");
+      return;
+    }
+
+    setCardImage(new File([blob], `business-card-${Date.now()}.jpg`, { type: "image/jpeg" }));
+    closeCamera();
+  };
+
+  const consumeProcessStream = async (
+    capture: CaptureAcceptedResponse,
+    persist?: { captureMode: CaptureType; note: string },
+  ): Promise<WorkflowFullFlowResponse> => {
+    if (!capture.streamUrl) throw new Error("We couldn't start processing your note.");
+    if (persist) {
+      saveActiveCaptureState({
+        requestId: capture.requestId,
+        conversationId: capture.conversationId,
+        streamUrl: capture.streamUrl,
+        captureMode: persist.captureMode,
+        note: persist.note,
+      });
+    }
+
+    const response = await fetch(capture.streamUrl, {
+      headers: { Accept: "text/event-stream" },
+    });
+    if (!response.ok || !response.body) {
+      throw new Error("We couldn't start processing your note.");
+    }
+
+    const events: ProcessStageEvent[] = [];
+    let finalPayload:
+      | (RecommendationPackage & {
+          extractionHandoff: ExtractionHandoff;
+          evidenceBundle: EvidenceBundle;
+        })
+      | null = null;
+    let buffer = "";
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    const readEvent = (block: string) => {
+      const data = block
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trim())
+        .join("\n");
+      if (!data) return;
+      const event = JSON.parse(data) as ProcessStageEvent;
+      events.push(event);
+      setProcessEvents([...events]);
+      if (event.stage === "failed") {
+        clearActiveCaptureState();
+        throw new Error(event.message ?? "Something went wrong while processing your note.");
+      }
+      if (event.stage === "handoff_ready" && event.payload) {
+        finalPayload = event.payload as unknown as typeof finalPayload;
+      }
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop() ?? "";
+      blocks.forEach(readEvent);
+      if (done) break;
+    }
+    if (buffer.trim()) readEvent(buffer);
+    const completedPayload = finalPayload as
+      | (RecommendationPackage & {
+          extractionHandoff: ExtractionHandoff;
+          evidenceBundle: EvidenceBundle;
+        })
+      | null;
+    if (!completedPayload) {
+      clearActiveCaptureState();
+      throw new Error("Processing finished without a result - please try again.");
+    }
+
+    const { extractionHandoff, evidenceBundle, ...recommendationPackage } = completedPayload;
+    clearActiveCaptureState();
+    return {
+      objective: {
+        existed: true,
+        created: false,
+        objectiveId: viewModel.activeObjective?.id ?? "objective",
+      },
+      capture,
+      extractionHandoff,
+      evidenceBundle,
+      recommendationPackage,
+      events,
+    };
+  };
+
+  const submitTextCapture = async (rawText: string) => {
+    if (!viewModel.activeObjective) {
+      throw new Error("Finish setup before adding a note.");
+    }
+    const response = await fetch("/api/capture/text", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: viewModel.activeObjective.userId,
+        rawText,
+        eventContext: viewModel.activeObjective.eventContext ?? undefined,
+      }),
+    });
+    const payload = (await response.json()) as CaptureAcceptedResponse | ErrorResponse;
+    if (!response.ok) {
+      throw new Error("message" in payload ? payload.message : "The note could not be captured.");
+    }
+    return consumeProcessStream(payload as CaptureAcceptedResponse, {
+      captureMode: "text",
+      note: rawText,
+    });
+  };
+
+  const submitVoiceCapture = async (blob: Blob) => {
+    if (!viewModel.activeObjective || !objectiveSeed) {
+      throw new Error("Finish setup before adding a note.");
+    }
+    const type = blob.type || "audio/webm";
+    const form = new FormData();
+    form.set("userId", viewModel.activeObjective.userId);
+    form.set(
+      "audioFile",
+      new File([blob], `relationship-signal.${audioFileExtension(type)}`, { type }),
+    );
+    if (viewModel.activeObjective.eventContext) {
+      form.set("eventContext", viewModel.activeObjective.eventContext);
+    }
+
+    const captureResponse = await fetch("/api/capture/voice", {
+      method: "POST",
+      body: form,
+    });
+    const capturePayload = (await captureResponse.json()) as
+      | VoiceCaptureAcceptedResponse
+      | ErrorResponse;
+
+    if (!captureResponse.ok) {
+      const message =
+        "message" in capturePayload
+          ? capturePayload.message
+          : "The voice note could not be transcribed.";
+      throw new Error(message);
+    }
+
+    const voiceCapture = capturePayload as VoiceCaptureAcceptedResponse;
+    if (voiceCapture.transcript) {
+      setNote(voiceCapture.transcript);
+      setTranscriptStatus("Transcript ready");
+    }
+
+    return consumeProcessStream(voiceCapture, {
+      captureMode: "voice",
+      note: voiceCapture.transcript ?? note,
+    });
+  };
+
+  const submitCardCapture = async (imageFile: File, meetingContext: string) => {
+    if (!viewModel.activeObjective || !objectiveSeed) {
+      throw new Error("Finish setup before adding a note.");
+    }
+    const form = new FormData();
+    form.set("userId", viewModel.activeObjective.userId);
+    form.set("imageFile", imageFile);
+    if (meetingContext) form.set("manualTextFallback", meetingContext);
+    if (viewModel.activeObjective.eventContext) {
+      form.set("eventContext", viewModel.activeObjective.eventContext);
+    }
+
+    const response = await fetch("/api/capture/card", { method: "POST", body: form });
+    const payload = (await response.json()) as CardCaptureAcceptedResponse | ErrorResponse;
+    if (!response.ok) {
+      throw new Error("message" in payload ? payload.message : "The business card could not be recognized.");
+    }
+
+    const cardCapture = payload as CardCaptureAcceptedResponse;
+    if (cardCapture.cardText) setNote(cardCapture.cardText);
+    return consumeProcessStream(cardCapture, {
+      captureMode: "card",
+      note: cardCapture.cardText ?? meetingContext,
+    });
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!viewModel.activeObjective || !objectiveSeed) {
+      setState("error");
+      setError("Finish setup before adding a note.");
+      return;
+    }
     const rawText = note.trim();
-    if (!rawText || state === "submitting") return;
+    if (state === "submitting" || recordingState === "recording") return;
+    if (!rawText && !(captureMode === "voice" && audioBlob) && !(captureMode === "card" && cardImage)) return;
 
     setState("submitting");
     setError(null);
+    setProcessEvents([]);
 
     try {
-      const response = await fetch("/api/workflows/full-flow", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: viewModel.activeObjective.userId,
-          rawText,
-          eventContext: viewModel.activeObjective.eventContext ?? undefined,
-          objectiveSeed,
-          captureType: captureMode,
-          status: "new",
-        }),
-      });
-      const payload = (await response.json()) as
-        | WorkflowFullFlowResponse
-        | ErrorResponse;
+      const payload =
+        captureMode === "voice" && audioBlob
+          ? await submitVoiceCapture(audioBlob)
+          : captureMode === "card" && cardImage
+            ? await submitCardCapture(cardImage, rawText)
+          : await submitTextCapture(rawText);
 
-      if (!response.ok) {
-        const message =
-          "message" in payload
-            ? payload.message
-            : "The intelligence workflow could not analyze this note.";
-        throw new Error(message);
-      }
-
-      setResult(payload as WorkflowFullFlowResponse);
+      setResult(payload);
       setState("success");
     } catch (caught) {
       setResult(null);
@@ -109,16 +710,42 @@ export function CaptureSignal({
       setError(
         caught instanceof Error
           ? caught.message
-          : "The intelligence workflow could not analyze this note.",
+          : "We couldn't analyze this note.",
       );
     }
   };
 
   const isSubmitting = state === "submitting";
+  const canSubmit =
+    Boolean(viewModel.activeObjective) &&
+    !isSubmitting &&
+    recordingState !== "recording" &&
+    Boolean(note.trim() || (captureMode === "voice" && audioBlob) || (captureMode === "card" && cardImage));
   const candidate = result?.extractionHandoff.contactCandidate;
   const recommendation = result?.recommendationPackage.recommendation;
   const draft = result?.recommendationPackage.draft;
-  const selectedRoute = result?.recommendationPackage.decisionTrace.chosenRoute;
+  const textareaValue = note;
+
+  if (!viewModel.activeObjective) {
+    return (
+      <section className="screen capture-screen">
+        <div className="capture-topline">
+          <span className="user-orb user-orb-large">AM</span>
+          <span className="capture-mode">Setup required</span>
+        </div>
+        <article className="attention-card gap-card">
+          <div className="section-label">
+            <AlertTriangle size={18} />
+            <span>Setup required</span>
+          </div>
+          <p>Finish setup before adding a note.</p>
+          <Link className="primary-action" href="/setup">
+            Open setup
+          </Link>
+        </article>
+      </section>
+    );
+  }
 
   return (
     <section className="screen capture-screen">
@@ -135,7 +762,7 @@ export function CaptureSignal({
       <form className="capture-composer" onSubmit={handleSubmit}>
         <div>
           <div className="screen-kicker">{formatGoal(viewModel.activeObjective.primaryGoal)}</div>
-          <h1>Add relationship signal</h1>
+          <h1>Add a note</h1>
         </div>
         <textarea
           aria-label="Relationship note"
@@ -148,27 +775,40 @@ export function CaptureSignal({
                 ? "Paste or dictate the voice note transcript from the conversation..."
                 : "Met Elena after the AI infra panel. She is scaling distributed systems, open to technical conversations..."
           }
-          value={note}
+          value={textareaValue}
         />
         <div className="capture-actions">
+          <input
+            accept="image/*"
+            capture="environment"
+            hidden
+            onChange={(event) => {
+              const image = event.target.files?.[0] ?? null;
+              setCardImage(image);
+              if (image) {
+                closeCamera();
+                setCaptureMode("card");
+                setError(null);
+                setResult(null);
+              }
+            }}
+            ref={cardInputRef}
+            type="file"
+          />
           <button
-            aria-label="Record voice note"
+            aria-label={recordingState === "recording" ? "Stop recording voice note" : "Record voice note"}
             className={`round-tool ${captureMode === "voice" ? "is-active" : ""}`}
             disabled={isSubmitting}
-            onClick={() =>
-              setCaptureMode((mode) => (mode === "voice" ? "text" : "voice"))
-            }
+            onClick={handleVoiceButton}
             type="button"
           >
-            <Mic size={24} />
+            {recordingState === "recording" ? <Loader2 className="spin-icon" size={24} /> : <Mic size={24} />}
           </button>
           <button
             aria-label="Scan card"
             className={`round-tool ${captureMode === "card" ? "is-active" : ""}`}
-            disabled={isSubmitting}
-            onClick={() =>
-              setCaptureMode((mode) => (mode === "card" ? "text" : "card"))
-            }
+            disabled={isSubmitting || recordingState === "recording"}
+            onClick={startCamera}
             type="button"
           >
             <ScanLine size={23} />
@@ -176,7 +816,7 @@ export function CaptureSignal({
           <button
             aria-busy={isSubmitting}
             className="primary-action capture-submit"
-            disabled={!note.trim() || isSubmitting}
+            disabled={!canSubmit}
             type="submit"
           >
             {isSubmitting ? (
@@ -187,6 +827,18 @@ export function CaptureSignal({
             <span>{isSubmitting ? "Analyzing" : "Analyze relationship"}</span>
           </button>
         </div>
+        {captureMode === "voice" && recordingState !== "idle" ? (
+          <p className="voice-capture-status" aria-live="polite">
+            {recordingState === "recording"
+              ? transcriptStatus ?? "Recording voice note"
+              : transcriptStatus ?? "Voice transcript ready"}
+          </p>
+        ) : null}
+        {captureMode === "card" && cardImage ? (
+          <p className="voice-capture-status" aria-live="polite">
+            {cardImage.name} ready for recognition
+          </p>
+        ) : null}
         <p className="quiet-note">{viewModel.acceptableUseText}</p>
 
         {state === "error" && error ? (
@@ -196,11 +848,41 @@ export function CaptureSignal({
           </article>
         ) : null}
 
+        {cameraOpen ? (
+          <div className="camera-overlay" role="dialog" aria-label="Business card camera" aria-modal="true">
+            <div className="camera-header">
+              <span>Align card within frame</span>
+              <button aria-label="Close camera" className="camera-icon-button" onClick={closeCamera} type="button">
+                <X size={24} />
+              </button>
+            </div>
+            <div className="camera-viewport">
+              <video autoPlay muted playsInline ref={cameraVideoRef} />
+              <div className="camera-guide" aria-hidden="true" />
+            </div>
+            <div className="camera-controls">
+              <button
+                aria-label="Choose card image"
+                className="camera-icon-button"
+                onClick={() => cardInputRef.current?.click()}
+                title="Choose image"
+                type="button"
+              >
+                <ImageUp size={24} />
+              </button>
+              <button aria-label="Capture card" className="camera-shutter" onClick={captureCardFrame} type="button">
+                <Camera size={30} />
+              </button>
+              <span className="camera-control-spacer" aria-hidden="true" />
+            </div>
+          </div>
+        ) : null}
+
         {result && recommendation ? (
           <section className="analysis-result" aria-live="polite">
             <div className="section-label">
               <CheckCircle2 size={17} />
-              <span>Intelligence package</span>
+              <span>Your recommendation</span>
             </div>
             <div className="result-grid">
               <article>
@@ -213,18 +895,9 @@ export function CaptureSignal({
                 </small>
               </article>
               <article>
-                <span>Action</span>
+                <span>Best move</span>
                 <strong>{formatAction(recommendation.recommendedAction)}</strong>
-                <small>
-                  Confidence {formatScore(recommendation.confidence)}
-                </small>
-              </article>
-              <article>
-                <span>Route</span>
-                <strong>{selectedRoute?.type ?? "relationship"}</strong>
-                <small>
-                  Priority {formatScore(recommendation.priorityScore)}
-                </small>
+                <small>{CONFIDENCE_LABELS[confidenceLevel(recommendation.confidence)]}</small>
               </article>
             </div>
             <div className="reason-stack">
@@ -237,23 +910,28 @@ export function CaptureSignal({
             {draft ? (
               <div className="draft-panel captured-draft">
                 <div className="draft-title">
-                  <span>Generated draft</span>
+                  <span>Suggested message</span>
                 </div>
                 <textarea
-                  aria-label="Generated follow-up draft"
+                  aria-label="Suggested message"
                   readOnly
                   value={draft.body}
                 />
               </div>
             ) : null}
-            <div className="stage-strip" aria-label="Workflow stages">
-              {result.events.map((event) => (
-                <span className={`stage-pill stage-${event.status}`} key={`${event.stage}-${event.timestamp}`}>
-                  {event.stage.replaceAll("_", " ")}
-                </span>
-              ))}
-            </div>
           </section>
+        ) : null}
+        {processEvents.length ? (
+          <div className="stage-strip" aria-label="Progress" aria-live="polite">
+            {processEvents.map((event, index) => (
+              <span
+                className={`stage-pill stage-${event.status}`}
+                key={`${event.stage}-${event.status}-${event.timestamp}-${index}`}
+              >
+                {captureStageLabel(event.stage)}
+              </span>
+            ))}
+          </div>
         ) : null}
       </form>
     </section>

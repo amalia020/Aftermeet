@@ -47,11 +47,17 @@ export interface CaptureAcceptedResponse {
 }
 
 export interface VoiceCaptureAcceptedResponse extends CaptureAcceptedResponse {
+  transcript?: string;
   transcriptStatus: "pending" | "completed" | "fallback_required";
 }
 
 export interface CardCaptureAcceptedResponse extends CaptureAcceptedResponse {
+  cardText?: string;
   cardStatus: "captured" | "manual_fallback";
+  contactCandidate?: ContactCandidate;
+  recognitionProvider?: string;
+  recognitionModel?: string;
+  warnings?: string[];
 }
 
 export interface ActiveObjectiveRequest {

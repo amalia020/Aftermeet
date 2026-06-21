@@ -10,6 +10,9 @@ export interface ServerEnv {
   geminiModel: string;
   openaiApiKey?: string;
   openaiTranscriptionModel: string;
+  openaiRealtimeTranscriptionModel: string;
+  openaiRealtimeTranscriptionLanguage: string;
+  openaiRealtimeTranscriptionDelay: string;
 }
 
 export function getServerEnv(): ServerEnv {
@@ -24,7 +27,13 @@ export function getServerEnv(): ServerEnv {
     geminiApiKey: process.env.GEMINI_API_KEY,
     geminiModel: process.env.GEMINI_MODEL ?? "gemini-flash-latest",
     openaiApiKey: process.env.OPENAI_API_KEY,
-    openaiTranscriptionModel: process.env.OPENAI_TRANSCRIPTION_MODEL ?? "gpt-4o-transcribe"
+    openaiTranscriptionModel: process.env.OPENAI_TRANSCRIPTION_MODEL ?? "gpt-4o-transcribe",
+    openaiRealtimeTranscriptionModel:
+      process.env.OPENAI_REALTIME_TRANSCRIPTION_MODEL ?? "gpt-4o-mini-transcribe",
+    openaiRealtimeTranscriptionLanguage:
+      process.env.OPENAI_REALTIME_TRANSCRIPTION_LANGUAGE ?? "en",
+    openaiRealtimeTranscriptionDelay:
+      process.env.OPENAI_REALTIME_TRANSCRIPTION_DELAY ?? "auto",
   };
 }
 
