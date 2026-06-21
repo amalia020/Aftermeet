@@ -37,16 +37,16 @@ function whyThisFor(
   const lines = [...chosenRoute.why];
   switch (action) {
     case "CONFIRM_DETAILS":
-      lines.unshift("Entity match is low — confirm who this is before reaching out.");
+      lines.unshift("We're not sure this is the right person — confirm before reaching out.");
       break;
     case "DO_NOT_CONTACT":
-      lines.unshift("Recipient burden is high — contacting now would feel pushy.");
+      lines.unshift("Reaching out now might feel pushy — give it a little time.");
       break;
     case "STAY_CALM":
       lines.unshift("Priority is low — no action needed right now.");
       break;
     case "WAIT":
-      lines.unshift("Not enough signal yet — wait for a clearer moment.");
+      lines.unshift("Not enough to go on yet — wait for a clearer moment.");
       break;
     case "REPLY_NOW":
       lines.unshift("They replied — respond now before warmth decays.");

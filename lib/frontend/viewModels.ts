@@ -12,6 +12,7 @@ import {
   listRecommendations,
   listSourceRecords,
 } from "@/lib/db/queries";
+import { friendlyWarnings, tidyFact, tidyFacts } from "@/lib/copy";
 import {
   scoreStoredRelationshipMoves,
   selectStoredDailyMoves
@@ -49,7 +50,7 @@ export function evidenceProvenance(input: {
     return { provenance: "captured", sourceLabel: "Captured by you" };
   }
   if (input.sourceType === "cala_verified_fact") {
-    return { provenance: "cited", sourceLabel: "Cala-verified public source" };
+    return { provenance: "cited", sourceLabel: "Verified public source" };
   }
   if (input.sourceUrl) {
     return { provenance: "cited", sourceLabel: "Cited public source" };
@@ -132,7 +133,7 @@ export interface PersonIntelligenceViewModel extends PersonViewModel {
     // Cohesive profile synthesized from every source — rendered as ONE card on
     // the contact screen instead of one card per raw fact.
     profile: EvidenceProfile;
-    // Distinct provenance labels behind the profile (e.g. "Cala-verified public
+    // Distinct provenance labels behind the profile (e.g. "Verified public
     // source", "Cited public source", "Captured by you").
     sourceLabels: string[];
     sources: Array<{
@@ -252,7 +253,7 @@ function missionTitle(objective: UserObjectiveProfile): string {
   }
   if (primaryGoal === "find_users") return "Find Design Users";
   if (primaryGoal === "raise") return "Build Investor Momentum";
-  if (primaryGoal === "collect_wtp") return "Validate Willingness To Pay";
+  if (primaryGoal === "collect_wtp") return "Confirm People Will Pay";
   return titleCase(primaryGoal);
 }
 
@@ -328,9 +329,9 @@ function moveLabel(move: DailyMoveDecision): string {
 }
 
 function costOfSilenceLabel(move: DailyMoveDecision): string {
-  if (move.costOfSilence >= 0.35) return "High cost of silence";
-  if (move.costOfSilence >= 0.15) return "Medium cost of silence";
-  return "Low cost to wait";
+  if (move.costOfSilence >= 0.35) return "Worth reaching out soon";
+  if (move.costOfSilence >= 0.15) return "Reach out when you can";
+  return "No rush";
 }
 
 function contactFor(rec: ActionRecommendation): Contact | null {
@@ -342,7 +343,7 @@ function firstReason(rec: ActionRecommendation): string {
     rec.explanation.whyThisAction[0] ??
     rec.explanation.safeFactsUsed[0] ??
     rec.explanation.inputSummary ??
-    "The decision engine found this to be the strongest next step."
+    "This looked like the strongest next step."
   );
 }
 
@@ -364,7 +365,7 @@ function buildPart5Move(move: DailyMoveDecision, userId: Id): BriefMove {
     signal: moveSignal(move),
     label: moveLabel(move),
     action: relationshipActionLabel(move.recommendedAction),
-    reason: move.whyNow[0] ?? move.whyThisAction[0] ?? "This move best fits today's relationship policy.",
+    reason: move.whyNow[0] ?? move.whyThisAction[0] ?? "This is the best move with them today.",
     whyNow: move.whyNow,
     whatToAvoid: move.whatToAvoid,
     costOfSilence: costOfSilenceLabel(move),
@@ -440,7 +441,7 @@ function emptyBrief(userId: Id): DailyBriefViewModel {
     userId,
     activeObjective: null,
     missionTitle: "Complete setup",
-    missionContext: "Add your relationship priorities before capturing signals.",
+    missionContext: "Add your priorities before adding notes.",
     currentDate: formatDate(),
     headline: "Setup is required before analysis",
     moves: [],
@@ -449,7 +450,7 @@ function emptyBrief(userId: Id): DailyBriefViewModel {
     proof: [
       { label: "Today", value: "0", note: "high-leverage moves" },
       { label: "Warm", value: "0", note: "relationships captured" },
-      { label: "Blocked", value: "0", note: "waiting or hold states" },
+      { label: "Blocked", value: "0", note: "waiting on replies" },
     ],
   };
 }
@@ -502,7 +503,7 @@ export function getDailyBriefViewModel(userId = DEMO_USER_ID): DailyBriefViewMod
     proof: [
       { label: "Today", value: String(moves.length), note: "high-leverage moves" },
       { label: "Warm", value: String(listContacts(userId).length), note: "relationships captured" },
-      { label: "Blocked", value: String(sentOrWaiting), note: "waiting or hold states" },
+      { label: "Blocked", value: String(sentOrWaiting), note: "waiting on replies" },
     ],
   };
 }
@@ -602,7 +603,7 @@ function cardForMove(move: DailyMoveDecision, userId: Id): BoardCard {
     name: move.contactName ?? "Unknown contact",
     role: [move.company, move.relationshipState].filter(Boolean).join(" · "),
     label: moveLabel(move),
-    note: move.whyNow[0] ?? move.whyThisAction[0] ?? "Daily policy selected this relationship state.",
+    note: move.whyNow[0] ?? move.whyThisAction[0] ?? "Picked for you today.",
     action: relationshipActionLabel(move.recommendedAction),
     disabled: ["wait", "snooze", "confirm_details", "do_not_act"].includes(move.recommendedAction),
     href: `/contacts/${move.contactId}`,
@@ -624,7 +625,7 @@ function emptyBoardSections(): BoardSection[] {
     {
       id: "needs-action",
       title: "Act Today",
-      context: "Daily policy selected",
+      context: "Picked for today",
       tone: "urgent",
       cards: [],
     },
@@ -719,7 +720,7 @@ function emptyPerson(): PersonIntelligenceViewModel {
     },
     warmth: "Medium",
     missionFit: "Weak",
-    systemNote: "Nothing captured for this contact yet. Capture a signal to start the evidence trace.",
+    systemNote: "Nothing saved for this person yet. Add a note to start building their profile.",
     evidence: {
       profile: emptyProfile(),
       sourceLabels: [],
@@ -735,7 +736,7 @@ function emptyPerson(): PersonIntelligenceViewModel {
     },
     recommendation: {
       title: "No recommendation yet",
-      reason: "Capture or enrich more context to produce a decision trace.",
+      reason: "Add more about this person to get a recommendation.",
       avoid: "Do not contact until the context is clear enough.",
       draft: "No draft has been generated yet.",
       whyNow: [],
@@ -745,7 +746,7 @@ function emptyPerson(): PersonIntelligenceViewModel {
       risks: [],
       safeFacts: [],
       blockedFacts: [],
-      costOfSilence: "Not scored by daily policy",
+      costOfSilence: "Not ranked yet",
     },
   };
 }
@@ -761,13 +762,13 @@ const OUTCOME_LABELS_BY_TYPE: Record<
   hire: { booked: "Interview booked", paid: "Hired / offer out" },
   candidate: { booked: "Interview booked", paid: "Hired / offer out" },
   job: { booked: "Interview booked", paid: "Offer received" },
-  user: { booked: "Demo booked", wtp: "WTP signal", paid: "Activated / paid" },
-  customer: { booked: "Demo booked", wtp: "WTP signal", paid: "Paid / converted" },
+  user: { booked: "Demo booked", wtp: "They'd pay", paid: "Activated / paid" },
+  customer: { booked: "Demo booked", wtp: "They'd pay", paid: "Paid / converted" },
   partner: { booked: "Meeting booked", wtp: "Verbal interest", paid: "Partnership signed" },
   sponsor: { booked: "Meeting booked", wtp: "Verbal interest", paid: "Sponsorship committed" },
   mentor: { booked: "Session booked", paid: "Ongoing mentorship" },
   community: { booked: "Meeting booked", paid: "Joined / committed" },
-  other: { booked: "Meeting booked", wtp: "WTP signal", paid: "Converted" },
+  other: { booked: "Meeting booked", wtp: "They'd pay", paid: "Converted" },
 };
 
 function outcomeLoopOptions(opportunityType?: OpportunityType): OutcomeLoopViewModel["options"] {
@@ -845,14 +846,14 @@ function readStoredProfile(contactId: Id): EvidenceProfile | null {
     if (profile && typeof profile === "object" && !Array.isArray(profile)) {
       const record = profile as Record<string, unknown>;
       return {
-        summary: asString(record.summary) ?? "",
+        summary: tidyFact(asString(record.summary) ?? "", 320),
         role: asString(record.role),
         company: asString(record.company),
         sector: asString(record.sector),
         location: asString(record.location),
-        expertise: asStringArray(record.expertise),
-        highlights: asStringArray(record.highlights),
-        signals: asStringArray(record.signals),
+        expertise: tidyFacts(asStringArray(record.expertise), { max: 8, maxLength: 60 }),
+        highlights: tidyFacts(asStringArray(record.highlights), { max: 8 }),
+        signals: tidyFacts(asStringArray(record.signals), { max: 6 }),
       };
     }
   }
@@ -866,7 +867,7 @@ function deterministicProfile(
   contact: { role?: string | null; company?: string | null },
 ): EvidenceProfile {
   const ordered = [...facts].sort((left, right) => right.factConfidence - left.factConfidence);
-  const highlights = dedupeStrings(ordered.map((fact) => fact.text)).slice(0, 8);
+  const highlights = tidyFacts(ordered.map((fact) => fact.text), { max: 8 });
   return {
     summary: highlights[0] ?? "",
     role: contact.role ?? undefined,
@@ -970,16 +971,16 @@ export function getPersonIntelligenceViewModel(
     warmth: warmthLabel(rec),
     missionFit: missionFitLabel(confidence?.userGoalFit ?? 0.5),
     systemNote: move
-      ? `${costOfSilenceLabel(move)}. ${move.whyNow[0] ?? "Daily policy scored this relationship."}`
+      ? `${costOfSilenceLabel(move)}. ${move.whyNow[0] ?? "Chosen for you today."}`
       : rec
         ? `${facts.length || safeFacts.length} usable fact${facts.length === 1 ? "" : "s"} and ${sourceCount} public source${sourceCount === 1 ? "" : "s"} inform this recommendation.`
-      : "Captured contact is ready for enrichment and recommendation.",
+      : "Ready for a recommendation once we know a bit more.",
     evidence: {
       profile,
       sourceLabels,
       sources,
       sourceCount,
-      warnings: rec?.explanation.warnings ?? [],
+      warnings: friendlyWarnings(rec?.explanation.warnings ?? []),
       confidence: {
         entityMatch: confidence?.entityMatch ?? contact.entityMatchConfidence ?? 0,
         sourceConfidence: confidence?.sourceConfidence ?? 0,
@@ -996,7 +997,7 @@ export function getPersonIntelligenceViewModel(
         : rec
           ? `Best move today: ${formatAction(rec.recommendedAction).toLowerCase()}`
           : "No recommendation yet",
-      reason: move ? move.whyThisAction[0] ?? move.whyNow[0] : rec ? firstReason(rec) : "Capture or enrich more context to produce a decision trace.",
+      reason: move ? move.whyThisAction[0] ?? move.whyNow[0] : rec ? firstReason(rec) : "Add more about this person to get a recommendation.",
       avoid: move ? move.whatToAvoid[0] ?? "Keep the final action user-controlled." : rec ? firstAvoidance(rec) : "Do not contact until the context is clear enough.",
       draft: draft?.body ?? "No draft has been generated for this recommendation yet.",
       whyNow: move?.whyNow ?? [],
@@ -1004,9 +1005,9 @@ export function getPersonIntelligenceViewModel(
       whyNot: move?.whyNot ?? [],
       whatToAvoid: move?.whatToAvoid ?? (rec ? [firstAvoidance(rec)] : []),
       risks: move?.risks ?? [],
-      safeFacts: move?.safeFactsForDraft ?? safeFacts,
-      blockedFacts: move?.blockedFacts ?? [],
-      costOfSilence: move ? costOfSilenceLabel(move) : "Not scored by daily policy",
+      safeFacts: tidyFacts(move?.safeFactsForDraft ?? safeFacts),
+      blockedFacts: tidyFacts(move?.blockedFacts ?? []),
+      costOfSilence: move ? costOfSilenceLabel(move) : "Not ranked yet",
     },
   };
 }

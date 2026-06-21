@@ -5,16 +5,16 @@ import type { MissionRadarViewModel } from "@/lib/frontend/viewModels";
 export function MissionRadar({ radar }: { radar: MissionRadarViewModel }) {
   return (
     <section className="screen radar-screen">
-      <div className="screen-kicker">Mission radar</div>
+      <div className="screen-kicker">Your network</div>
       <h1>{radar.missionTitle}</h1>
       <p className="screen-intro">
-        Calibrated by Part 5 daily policy: mission impact across the floor, timing pressure up the wall.
+        Your relationships mapped by how much they help your goal and how soon to reach out.
       </p>
 
       <div className="radar-console">
         <div className="matrix-panel">
-          <div className="axis-label axis-y">Timing pressure</div>
-          <div className="axis-label axis-x">Mission fit</div>
+          <div className="axis-label axis-y">When to act</div>
+          <div className="axis-label axis-x">How much it helps</div>
           <div className="matrix-grid">
             <span className="quadrant quadrant-watch">Watch</span>
             <span className="quadrant quadrant-act">Act</span>
@@ -35,7 +35,7 @@ export function MissionRadar({ radar }: { radar: MissionRadarViewModel }) {
         <aside className="signal-ledger">
           <div className="section-label">
             <SlidersHorizontal size={17} />
-            <span>Signal ledger</span>
+            <span>People to focus on</span>
           </div>
           {radar.nodes.map((node) => {
             const content = (
@@ -64,7 +64,7 @@ export function MissionRadar({ radar }: { radar: MissionRadarViewModel }) {
       <div className="bridge-list">
         <div className="section-label">
           <GitBranch size={17} />
-          <span>Possible bridges</span>
+          <span>Intro paths</span>
         </div>
         {radar.bridges.map((bridge) => (
           <article className="bridge-card" key={bridge.id}>

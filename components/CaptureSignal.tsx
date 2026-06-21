@@ -27,6 +27,7 @@ import type {
   WorkflowObjectiveSeed,
   CaptureType,
 } from "@/lib/types";
+import { captureStageLabel, confidenceLevel, CONFIDENCE_LABELS } from "@/lib/copy";
 
 type SubmissionState = "idle" | "submitting" | "success" | "error";
 type RecordingState = "idle" | "recording" | "recorded";
@@ -54,10 +55,6 @@ function formatAction(action: string): string {
     .split("_")
     .map((part) => part[0]?.toUpperCase() + part.slice(1))
     .join(" ");
-}
-
-function formatScore(score: number): string {
-  return `${Math.round(score * 100)}%`;
 }
 
 function supportedAudioMimeType(): string | undefined {
@@ -157,18 +154,18 @@ export function CaptureSignal({
       const itemId = event.item_id ?? "current";
       const currentTranscript = realtimeItemsRef.current.get(itemId) ?? "";
       setRealtimeItemTranscript(itemId, `${currentTranscript}${event.delta}`);
-      setTranscriptStatus("Realtime transcript active");
+      setTranscriptStatus("Live transcript on");
       return;
     }
 
     if (event.type === "conversation.item.input_audio_transcription.completed" && event.transcript) {
       setRealtimeItemTranscript(event.item_id ?? "current", event.transcript);
-      setTranscriptStatus("Realtime transcript finalized");
+      setTranscriptStatus("Transcript saved");
       return;
     }
 
     if (event.type === "error") {
-      setTranscriptStatus(event.error?.message ?? "Realtime transcript paused.");
+      setTranscriptStatus(event.error?.message ?? "Live transcript paused.");
     }
   };
 
@@ -194,9 +191,9 @@ export function CaptureSignal({
 
   const connectRealtimeTranscription = async (stream: MediaStream) => {
     const objective = viewModel.activeObjective;
-    if (!objective) throw new Error("Complete setup before recording a voice note.");
+    if (!objective) throw new Error("Finish setup before recording a voice note.");
     if (typeof RTCPeerConnection === "undefined") {
-      setTranscriptStatus("Realtime transcript is not supported in this browser.");
+      setTranscriptStatus("Live transcript isn't supported in this browser.");
       return;
     }
 
@@ -210,7 +207,7 @@ export function CaptureSignal({
       const message =
         "message" in tokenPayload
           ? tokenPayload.message
-          : "Realtime transcription could not start.";
+          : "Live transcript couldn't start.";
       throw new Error(message);
     }
 
@@ -225,14 +222,14 @@ export function CaptureSignal({
       try {
         handleRealtimeEvent(JSON.parse(messageEvent.data) as RealtimeTranscriptionEvent);
       } catch {
-        setTranscriptStatus("Realtime transcript event could not be read.");
+        setTranscriptStatus("Couldn't read the live transcript.");
       }
     });
     channel.addEventListener("open", () => {
-      setTranscriptStatus(`Realtime transcript active (${session.language})`);
+      setTranscriptStatus(`Live transcript on (${session.language})`);
     });
     channel.addEventListener("error", () => {
-      setTranscriptStatus("Realtime transcript connection had an error.");
+      setTranscriptStatus("The live transcript hit a problem.");
     });
 
     const offer = await peer.createOffer();
@@ -246,7 +243,7 @@ export function CaptureSignal({
       },
     });
     if (!sdpResponse.ok) {
-      throw new Error("Realtime transcription WebRTC connection failed.");
+      throw new Error("Live transcript couldn't connect.");
     }
     await peer.setRemoteDescription({
       type: "answer",
@@ -406,12 +403,12 @@ export function CaptureSignal({
   const consumeProcessStream = async (
     capture: CaptureAcceptedResponse,
   ): Promise<WorkflowFullFlowResponse> => {
-    if (!capture.streamUrl) throw new Error("The processing stream is unavailable.");
+    if (!capture.streamUrl) throw new Error("We couldn't start processing your note.");
     const response = await fetch(capture.streamUrl, {
       headers: { Accept: "text/event-stream" },
     });
     if (!response.ok || !response.body) {
-      throw new Error("The intelligence workflow could not start.");
+      throw new Error("We couldn't start processing your note.");
     }
 
     const events: ProcessStageEvent[] = [];
@@ -436,7 +433,7 @@ export function CaptureSignal({
       events.push(event);
       setProcessEvents([...events]);
       if (event.stage === "failed") {
-        throw new Error(event.message ?? "The intelligence workflow failed.");
+        throw new Error(event.message ?? "Something went wrong while processing your note.");
       }
       if (event.stage === "handoff_ready" && event.payload) {
         finalPayload = event.payload as unknown as typeof finalPayload;
@@ -458,7 +455,7 @@ export function CaptureSignal({
           evidenceBundle: EvidenceBundle;
         })
       | null;
-    if (!completedPayload) throw new Error("The processing stream ended without a result.");
+    if (!completedPayload) throw new Error("Processing finished without a result — please try again.");
 
     const { extractionHandoff, evidenceBundle, ...recommendationPackage } = completedPayload;
     return {
@@ -477,7 +474,7 @@ export function CaptureSignal({
 
   const submitTextCapture = async (rawText: string) => {
     if (!viewModel.activeObjective) {
-      throw new Error("Complete setup before capturing a relationship signal.");
+      throw new Error("Finish setup before adding a note.");
     }
     const response = await fetch("/api/capture/text", {
       method: "POST",
@@ -497,7 +494,7 @@ export function CaptureSignal({
 
   const submitVoiceCapture = async (blob: Blob) => {
     if (!viewModel.activeObjective || !objectiveSeed) {
-      throw new Error("Complete setup before capturing a relationship signal.");
+      throw new Error("Finish setup before adding a note.");
     }
     const type = blob.type || "audio/webm";
     const form = new FormData();
@@ -529,7 +526,7 @@ export function CaptureSignal({
     const voiceCapture = capturePayload as VoiceCaptureAcceptedResponse;
     if (voiceCapture.transcript) {
       setNote(voiceCapture.transcript);
-      setTranscriptStatus("OpenAI transcript ready");
+      setTranscriptStatus("Transcript ready");
     }
 
     return consumeProcessStream(voiceCapture);
@@ -537,7 +534,7 @@ export function CaptureSignal({
 
   const submitCardCapture = async (imageFile: File, meetingContext: string) => {
     if (!viewModel.activeObjective || !objectiveSeed) {
-      throw new Error("Complete setup before capturing a relationship signal.");
+      throw new Error("Finish setup before adding a note.");
     }
     const form = new FormData();
     form.set("userId", viewModel.activeObjective.userId);
@@ -562,7 +559,7 @@ export function CaptureSignal({
     event.preventDefault();
     if (!viewModel.activeObjective || !objectiveSeed) {
       setState("error");
-      setError("Complete setup before capturing a relationship signal.");
+      setError("Finish setup before adding a note.");
       return;
     }
     const rawText = note.trim();
@@ -589,7 +586,7 @@ export function CaptureSignal({
       setError(
         caught instanceof Error
           ? caught.message
-          : "The intelligence workflow could not analyze this note.",
+          : "We couldn't analyze this note.",
       );
     }
   };
@@ -603,7 +600,6 @@ export function CaptureSignal({
   const candidate = result?.extractionHandoff.contactCandidate;
   const recommendation = result?.recommendationPackage.recommendation;
   const draft = result?.recommendationPackage.draft;
-  const selectedRoute = result?.recommendationPackage.decisionTrace.chosenRoute;
   const textareaValue = note;
 
   if (!viewModel.activeObjective) {
@@ -618,7 +614,7 @@ export function CaptureSignal({
             <AlertTriangle size={18} />
             <span>Setup required</span>
           </div>
-          <p>Complete setup before capturing relationship signals.</p>
+          <p>Finish setup before adding a note.</p>
           <Link className="primary-action" href="/objective">
             Open setup
           </Link>
@@ -642,7 +638,7 @@ export function CaptureSignal({
       <form className="capture-composer" onSubmit={handleSubmit}>
         <div>
           <div className="screen-kicker">Recruit Core Talent</div>
-          <h1>Add relationship signal</h1>
+          <h1>Add a note</h1>
         </div>
         <textarea
           aria-label="Relationship note"
@@ -762,7 +758,7 @@ export function CaptureSignal({
           <section className="analysis-result" aria-live="polite">
             <div className="section-label">
               <CheckCircle2 size={17} />
-              <span>Intelligence package</span>
+              <span>Your recommendation</span>
             </div>
             <div className="result-grid">
               <article>
@@ -775,18 +771,9 @@ export function CaptureSignal({
                 </small>
               </article>
               <article>
-                <span>Action</span>
+                <span>Best move</span>
                 <strong>{formatAction(recommendation.recommendedAction)}</strong>
-                <small>
-                  Confidence {formatScore(recommendation.confidence)}
-                </small>
-              </article>
-              <article>
-                <span>Route</span>
-                <strong>{selectedRoute?.type ?? "relationship"}</strong>
-                <small>
-                  Priority {formatScore(recommendation.priorityScore)}
-                </small>
+                <small>{CONFIDENCE_LABELS[confidenceLevel(recommendation.confidence)]}</small>
               </article>
             </div>
             <div className="reason-stack">
@@ -799,10 +786,10 @@ export function CaptureSignal({
             {draft ? (
               <div className="draft-panel captured-draft">
                 <div className="draft-title">
-                  <span>Generated draft</span>
+                  <span>Suggested message</span>
                 </div>
                 <textarea
-                  aria-label="Generated follow-up draft"
+                  aria-label="Suggested message"
                   readOnly
                   value={draft.body}
                 />
@@ -811,13 +798,13 @@ export function CaptureSignal({
           </section>
         ) : null}
         {processEvents.length ? (
-          <div className="stage-strip" aria-label="Workflow stages" aria-live="polite">
+          <div className="stage-strip" aria-label="Progress" aria-live="polite">
             {processEvents.map((event, index) => (
               <span
                 className={`stage-pill stage-${event.status}`}
                 key={`${event.stage}-${event.status}-${event.timestamp}-${index}`}
               >
-                {event.stage.replaceAll("_", " ")}
+                {captureStageLabel(event.stage)}
               </span>
             ))}
           </div>

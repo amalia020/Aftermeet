@@ -368,7 +368,7 @@ function collectCalaFacts(args: {
     contactId,
     provider: "cala",
     sourceType: "cala_verified_fact",
-    sourceName: "Cala verified company context",
+    sourceName: "Verified company context",
     sourceUrl: null,
     retrievedAt: nowIso,
     now,
@@ -436,13 +436,13 @@ function collectWebFacts(args: {
       contactId,
       provider: "web",
       sourceType,
-      sourceName: isCited ? "Web search citation" : "Gemini uncited context",
+      sourceName: isCited ? "Public web source" : "Unconfirmed web mention",
       sourceUrl: claim.sourceUrl || null,
       retrievedAt: web.retrievedAt,
       now,
       notes: isCited
-        ? "Gemini grounded web claim"
-        : "Uncited Gemini claim; requires user or source confirmation",
+        ? "Cited public web result"
+        : "Unconfirmed web mention; requires confirmation",
     });
     sourceRecords.push(webSource);
 

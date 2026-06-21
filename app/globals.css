@@ -1090,6 +1090,28 @@ h2 {
   width: 40px;
 }
 
+.trust-badge {
+  border: 1px solid currentColor;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  margin-left: auto;
+  padding: 3px 8px;
+  text-transform: uppercase;
+}
+
+.trust-badge.trust-solid {
+  color: var(--mint);
+}
+
+.trust-badge.trust-fair {
+  color: var(--cyan);
+}
+
+.trust-badge.trust-unverified {
+  color: var(--coral);
+}
+
 .evidence-profile {
   display: grid;
   gap: 18px;

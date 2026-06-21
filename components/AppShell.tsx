@@ -26,7 +26,7 @@ const navItems: {
   { key: "brief", href: "/", label: "Brief", icon: ClipboardCheck },
   { key: "capture", href: "/capture", label: "Capture", icon: Radio },
   { key: "board", href: "/board", label: "Board", icon: Blocks },
-  { key: "loops", href: "/traction", label: "Loops", icon: RefreshCcw },
+  { key: "loops", href: "/traction", label: "Results", icon: RefreshCcw },
 ];
 
 export function AppShell({ active, children }: AppShellProps) {

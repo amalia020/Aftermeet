@@ -139,7 +139,7 @@ export function ObjectiveEditor({ objective }: { objective: UserObjectiveProfile
             <input defaultValue={objective?.eventContext ?? ""} name="eventContext" />
           </label>
           <label>
-            <span>Attention budget</span>
+            <span>People to focus on each day</span>
             <input
               defaultValue={objective?.attentionBudgetToday ?? ""}
               min={1}

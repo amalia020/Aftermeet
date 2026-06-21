@@ -55,7 +55,7 @@ export function DailyBrief({ brief }: { brief: DailyBriefViewModel }) {
         </div>
         <Link className="capture-fab" href="/capture">
           <Radio size={19} />
-          <span>Capture signal</span>
+          <span>Add a note</span>
         </Link>
       </div>
 
@@ -174,7 +174,7 @@ export function DailyBrief({ brief }: { brief: DailyBriefViewModel }) {
         <p>{brief.missionGap}</p>
         <Link className="primary-action" href={brief.activeObjective ? "/capture" : "/objective"}>
           <Search size={17} />
-          <span>{brief.activeObjective ? "Capture signal" : "Open setup"}</span>
+          <span>{brief.activeObjective ? "Add a note" : "Open setup"}</span>
         </Link>
       </article>
     </section>

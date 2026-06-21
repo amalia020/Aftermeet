@@ -20,22 +20,28 @@ function parseGeminiJson(text: string): WebContextResult | null {
   try {
     const parsed = parsedJson as Partial<WebContextResult>;
     const rawClaims = Array.isArray(parsed.claims) ? (parsed.claims as unknown[]) : [];
+    // Claims may arrive as plain strings or as { text, sourceUrl, sourceType }.
     const claims: WebContextClaim[] = rawClaims
-          .filter(
-            (claim): claim is Record<string, unknown> =>
-              typeof claim === "object" &&
-              claim !== null &&
-              "text" in claim &&
-              typeof claim.text === "string"
-          )
-          .map((claim) => ({
-            text: String(claim.text),
-            sourceUrl: typeof claim.sourceUrl === "string" ? claim.sourceUrl : "",
-            sourceType:
-              typeof claim.sourceType === "string"
-                ? claim.sourceType
-                : inferSourceTypeFromUrl(typeof claim.sourceUrl === "string" ? claim.sourceUrl : "")
-          })) as WebContextClaim[];
+          .map((claim): WebContextClaim | null => {
+            if (typeof claim === "string") {
+              return { text: claim, sourceUrl: "", sourceType: inferSourceTypeFromUrl("") };
+            }
+            if (claim && typeof claim === "object" && "text" in claim) {
+              const record = claim as Record<string, unknown>;
+              if (typeof record.text !== "string") return null;
+              const sourceUrl = typeof record.sourceUrl === "string" ? record.sourceUrl : "";
+              return {
+                text: record.text,
+                sourceUrl,
+                sourceType:
+                  typeof record.sourceType === "string"
+                    ? (record.sourceType as WebContextClaim["sourceType"])
+                    : inferSourceTypeFromUrl(sourceUrl)
+              };
+            }
+            return null;
+          })
+          .filter((claim): claim is WebContextClaim => claim !== null);
     return {
       summary: typeof parsed.summary === "string" ? parsed.summary : "",
       claims,
@@ -64,11 +70,26 @@ interface GeminiGroundedCandidate {
   groundingMetadata?: GeminiGroundingMetadata;
 }
 
-function normalizeGroundedText(text: string): string {
-  return text
-    .replace(/^[\s\x5b\x5d{},]*"?(?:text|fact)"?\s*:\s*"?/i, "")
-    .replace(/["\s,}\]]+$/, "")
-    .trim();
+/**
+ * Strip JSON scaffolding, citation markers and stray quotes out of a grounded
+ * text fragment. The grounded model sometimes returns its whole JSON payload as
+ * prose, and grounding segments then point at raw substrings of that JSON — this
+ * keeps a single clean sentence instead of a blob like
+ * `…intelligence.", "claims": [ "Amalia…`.
+ */
+function cleanGroundedText(raw: string): string {
+  let text = (raw ?? "").trim();
+  // Drop a leading JSON key wrapper, e.g.  {"summary": "  or  "text": "
+  text = text.replace(/^[\s[\]{},]*"?(?:text|fact|summary|claims)"?\s*:\s*\[?\s*"?/i, "");
+  // If JSON leaked in, cut at the first structural break into another field/array.
+  const breakAt = text.search(
+    /"\s*,\s*"(?:claims|summary|sourceurl|sourcetype|available|text|fact)"|"\s*:\s*\[/i
+  );
+  if (breakAt !== -1) text = text.slice(0, breakAt);
+  // Remove inline citation markers like [2.1.2] or [3].
+  text = text.replace(/\s*\[\d+(?:\.\d+)*\]/g, "");
+  // Trim stray wrapping quotes / trailing JSON punctuation.
+  return text.replace(/^["'\s]+/, "").replace(/["'\s,}\]]+$/, "").trim();
 }
 
 export function parseGroundedGeminiCandidate(
@@ -79,38 +100,58 @@ export function parseGroundedGeminiCandidate(
   const parsed = parseGeminiJson(text);
   const chunks = candidate.groundingMetadata?.groundingChunks ?? [];
   const supports = candidate.groundingMetadata?.groundingSupports ?? [];
-  const groundedClaims: WebContextClaim[] = [];
 
+  // Ordered, de-duplicated citation URLs from grounding metadata.
+  const groundingUrls: string[] = [];
   for (const support of supports) {
-    const fact = normalizeGroundedText(support.segment?.text ?? "");
-    if (!fact) continue;
     for (const index of support.groundingChunkIndices ?? []) {
-      const sourceUrl = chunks[index]?.web?.uri;
-      if (!sourceUrl) continue;
-      groundedClaims.push({
-        text: fact,
-        sourceUrl,
-        sourceType: inferSourceTypeFromUrl(sourceUrl)
-      });
+      const url = chunks[index]?.web?.uri;
+      if (url && !groundingUrls.includes(url)) groundingUrls.push(url);
     }
   }
 
-  const directClaims =
-    parsed?.claims.filter(
-      (claim) =>
-        Boolean(claim.sourceUrl) ||
-        !groundedClaims.some((grounded) => grounded.text === claim.text)
-    ) ?? [];
-  const claims = [...directClaims, ...groundedClaims].filter(
-    (claim, index, all) =>
-      all.findIndex(
-        (other) => other.text === claim.text && other.sourceUrl === claim.sourceUrl
-      ) === index
-  );
-  if (!parsed && !claims.length) return null;
+  let claims: WebContextClaim[];
+  if (parsed?.claims.length) {
+    // Prefer the model's structured claims — one clean fact each. Attach a
+    // citation positionally when the claim didn't carry its own.
+    claims = parsed.claims
+      .map((claim, index): WebContextClaim | null => {
+        const cleaned = cleanGroundedText(claim.text);
+        if (cleaned.length < 4) return null;
+        const sourceUrl = claim.sourceUrl || groundingUrls[index] || "";
+        return {
+          text: cleaned,
+          sourceUrl,
+          sourceType: sourceUrl ? inferSourceTypeFromUrl(sourceUrl) : claim.sourceType
+        };
+      })
+      .filter((claim): claim is WebContextClaim => claim !== null);
+  } else {
+    // No structured JSON — fall back to grounding segments, cleaned of any JSON.
+    claims = [];
+    for (const support of supports) {
+      const cleaned = cleanGroundedText(support.segment?.text ?? "");
+      if (cleaned.length < 12) continue;
+      const index = support.groundingChunkIndices?.[0];
+      const sourceUrl = (index !== undefined && chunks[index]?.web?.uri) || "";
+      claims.push({ text: cleaned, sourceUrl, sourceType: inferSourceTypeFromUrl(sourceUrl) });
+    }
+  }
+
+  // De-duplicate by text.
+  const seen = new Set<string>();
+  claims = claims.filter((claim) => {
+    const key = claim.text.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const summary = cleanGroundedText(parsed?.summary ?? "") || cleanGroundedText(text);
+  if (!summary && !claims.length) return null;
 
   return {
-    summary: parsed?.summary || text.trim(),
+    summary,
     claims,
     retrievedAt: parsed?.retrievedAt ?? retrievedAt,
     available: claims.length > 0

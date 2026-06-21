@@ -178,22 +178,45 @@ export async function calaKnowledgeSearch(input: string): Promise<CalaSearchResu
   };
 }
 
+/** Build a clean "<subject> is <role>." sentence from a knowledge row, or null
+ *  if there is nothing usable. Guards against the candidate name falling back to
+ *  the raw query string (which would otherwise be echoed back as a fact). */
+function factFromCandidate(candidate: CalaEntityCandidate, query: string): string | null {
+  const company = candidate.company?.trim();
+  const hasCleanName =
+    Boolean(candidate.name) && !candidate.name.includes("?") && candidate.name !== query;
+  const subject = hasCleanName ? candidate.name.trim() : company;
+  if (!subject) return null;
+
+  let role: string | null = null;
+  if (candidate.role) {
+    role = company && company !== subject ? `${candidate.role} at ${company}` : candidate.role;
+  } else if (company && company !== subject) {
+    role = `associated with ${company}`;
+  }
+
+  return role ? `${subject} is ${role}.` : null;
+}
+
 export async function calaKnowledgeQuery(input: string): Promise<CalaQueryResult> {
   const candidates = await knowledgeCandidates(input);
   if (candidates.length > 0) {
-    const facts = candidates.map((candidate) => {
-      const name = candidate.name;
-      const company = candidate.company ?? "an unknown company";
-      const role = candidate.role ? `${candidate.role} at ${company}` : `associated with ${company}`;
-      return `${name} is ${role}.`;
-    });
-    return {
-      available: true,
-      answer: facts[0],
-      facts,
-      rawResponse: { mode: "knowledge_query" },
-      warnings: []
-    };
+    // Some knowledge rows have no name field, in which case the candidate name
+    // falls back to the raw query string. Never echo that query back as a
+    // "fact" — derive a clean subject from the name or company instead.
+    const facts = candidates
+      .map((candidate) => factFromCandidate(candidate, input))
+      .filter((fact): fact is string => Boolean(fact));
+
+    if (facts.length > 0) {
+      return {
+        available: true,
+        answer: facts[0],
+        facts,
+        rawResponse: { mode: "knowledge_query" },
+        warnings: []
+      };
+    }
   }
 
   if (looksLikeRecursive(input)) {

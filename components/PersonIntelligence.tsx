@@ -20,12 +20,9 @@ import {
   XCircle,
 } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
+import { confidenceLevel, CONFIDENCE_LABELS } from "@/lib/copy";
 import type { PersonIntelligenceViewModel } from "@/lib/frontend/viewModels";
 import type { OutcomeType } from "@/lib/types";
-
-function percent(score: number): string {
-  return `${Math.round(score * 100)}%`;
-}
 
 function listItemKey(value: string, index: number): string {
   return `${index}-${value}`;
@@ -49,6 +46,7 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
     linkedinUrl: person.contact.linkedinUrl ?? "",
   });
   const needsDetailsConfirmation = person.recommendation.actionKey === "confirm_details";
+  const trust = confidenceLevel(person.evidence.confidence.finalConfidence);
 
   if (person.state === "empty") {
     return (
@@ -64,12 +62,12 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
           </div>
         </div>
         <div className="system-note">
-          <span>System note</span>
+          <span>Quick note</span>
           <p>{person.systemNote}</p>
         </div>
         <Link className="primary-action" href="/capture">
           <Send size={17} />
-          <span>Capture a signal</span>
+          <span>Add a note</span>
         </Link>
       </section>
     );
@@ -117,7 +115,7 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
   };
 
   const removeContact = async () => {
-    if (!person.recommendation.contactId || !window.confirm("Delete this contact and all related evidence?")) return;
+    if (!person.recommendation.contactId || !window.confirm("Delete this contact and everything we found?")) return;
     setDeletingContact(true);
     try {
       const response = await fetch(
@@ -154,13 +152,13 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
         </article>
         <article>
           <Rocket size={20} />
-          <span>Mission fit</span>
+          <span>Goal fit</span>
           <strong>{person.missionFit}</strong>
         </article>
       </div>
 
       <div className="system-note">
-        <span>System note</span>
+        <span>Quick note</span>
         <p>{person.systemNote}</p>
       </div>
 
@@ -183,25 +181,8 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
       <article className="evidence-panel">
         <div className="section-label">
           <ShieldCheck size={17} />
-          <span>Evidence trace</span>
-        </div>
-        <div className="confidence-grid">
-          <div>
-            <span>Entity</span>
-            <strong>{percent(person.evidence.confidence.entityMatch)}</strong>
-          </div>
-          <div>
-            <span>Sources</span>
-            <strong>{percent(person.evidence.confidence.sourceConfidence)}</strong>
-          </div>
-          <div>
-            <span>Facts</span>
-            <strong>{percent(person.evidence.confidence.factConfidence)}</strong>
-          </div>
-          <div>
-            <span>Final</span>
-            <strong>{percent(person.evidence.confidence.finalConfidence)}</strong>
-          </div>
+          <span>What we know</span>
+          <span className={`trust-badge trust-${trust}`}>{CONFIDENCE_LABELS[trust]}</span>
         </div>
         <EvidenceProfileCard
           profile={person.evidence.profile}
@@ -249,11 +230,11 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
       <article className="evidence-panel">
         <div className="section-label">
           <ListChecks size={17} />
-          <span>Draft policy</span>
+          <span>What to mention</span>
         </div>
         <div className="policy-columns">
           <div>
-            <strong>Safe facts</strong>
+            <strong>Safe to mention</strong>
             {person.recommendation.safeFacts.length ? (
               <ul className="evidence-list">
                 {person.recommendation.safeFacts.map((fact, index) => (
@@ -261,11 +242,11 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
                 ))}
               </ul>
             ) : (
-              <p className="evidence-empty">No safe facts selected for draft use.</p>
+              <p className="evidence-empty">Nothing confirmed to mention yet.</p>
             )}
           </div>
           <div>
-            <strong>Blocked facts</strong>
+            <strong>Avoid mentioning</strong>
             {person.recommendation.blockedFacts.length ? (
               <ul className="evidence-list">
                 {person.recommendation.blockedFacts.map((fact, index) => (
@@ -273,7 +254,7 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
                 ))}
               </ul>
             ) : (
-              <p className="evidence-empty">No facts blocked by the daily policy.</p>
+              <p className="evidence-empty">Nothing to avoid here.</p>
             )}
           </div>
         </div>
@@ -289,7 +270,7 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
 
       <div className="draft-panel">
         <div className="draft-title">
-          <span>Proposed message</span>
+          <span>Suggested message</span>
           <button type="button">
             <Edit3 size={15} />
             Edit
@@ -368,7 +349,7 @@ function EvidenceProfileCard({
   );
 
   if (!hasProfile) {
-    return <p className="evidence-empty">No public context has been synthesized yet.</p>;
+    return <p className="evidence-empty">We haven't found public info on this person yet.</p>;
   }
 
   const attributes = (

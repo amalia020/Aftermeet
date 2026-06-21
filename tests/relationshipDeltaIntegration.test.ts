@@ -205,7 +205,7 @@ describe("Part 5 frontend view models", () => {
     });
     expect(evidenceProvenance({ sourceType: "cala_verified_fact" })).toEqual({
       provenance: "cited",
-      sourceLabel: "Cala-verified public source"
+      sourceLabel: "Verified public source"
     });
     expect(
       evidenceProvenance({
