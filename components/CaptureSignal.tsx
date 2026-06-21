@@ -4,15 +4,24 @@ import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  Camera,
   CheckCircle2,
+  ImageUp,
   Loader2,
   Mic,
   Radio,
   ScanLine,
+  X,
 } from "lucide-react";
 import type {
   CaptureScreenViewModel,
+  CaptureAcceptedResponse,
+  CardCaptureAcceptedResponse,
+  EvidenceBundle,
   ErrorResponse,
+  ExtractionHandoff,
+  ProcessStageEvent,
+  RecommendationPackage,
   VoiceCaptureAcceptedResponse,
   WorkflowFullFlowResponse,
   WorkflowObjectiveSeed,
@@ -77,10 +86,16 @@ export function CaptureSignal({
   const [state, setState] = useState<SubmissionState>("idle");
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [cardImage, setCardImage] = useState<File | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
   const [transcriptStatus, setTranscriptStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<WorkflowFullFlowResponse | null>(null);
+  const [processEvents, setProcessEvents] = useState<ProcessStageEvent[]>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const cardInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const realtimeChannelRef = useRef<RTCDataChannel | null>(null);
   const realtimeItemsRef = useRef<Map<string, string>>(new Map());
@@ -113,9 +128,16 @@ export function CaptureSignal({
     return () => {
       mediaRecorderRef.current?.stop();
       mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+      cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
       closeRealtimeConnection();
     };
   }, []);
+
+  useEffect(() => {
+    if (cameraOpen && cameraVideoRef.current && cameraStreamRef.current) {
+      cameraVideoRef.current.srcObject = cameraStreamRef.current;
+    }
+  }, [cameraOpen]);
 
   const setRealtimeItemTranscript = (itemId: string, transcript: string) => {
     if (!realtimeItemsRef.current.has(itemId)) {
@@ -172,7 +194,7 @@ export function CaptureSignal({
 
   const connectRealtimeTranscription = async (stream: MediaStream) => {
     const objective = viewModel.activeObjective;
-    if (!objective) throw new Error("Create a mission before recording a voice note.");
+    if (!objective) throw new Error("Complete setup before recording a voice note.");
     if (typeof RTCPeerConnection === "undefined") {
       setTranscriptStatus("Realtime transcript is not supported in this browser.");
       return;
@@ -310,28 +332,172 @@ export function CaptureSignal({
     await startRecording();
   };
 
-  const runFullFlow = async (body: Record<string, unknown>) => {
-    const response = await fetch("/api/workflows/full-flow", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const payload = (await response.json()) as WorkflowFullFlowResponse | ErrorResponse;
+  const closeCamera = () => {
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraStreamRef.current = null;
+    setCameraOpen(false);
+  };
 
-    if (!response.ok) {
-      const message =
-        "message" in payload
-          ? payload.message
-          : "The intelligence workflow could not analyze this note.";
-      throw new Error(message);
+  const startCamera = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setState("error");
+      setError("Camera capture is not supported in this browser. Choose an image instead.");
+      cardInputRef.current?.click();
+      return;
     }
 
-    return payload as WorkflowFullFlowResponse;
+    setCaptureMode("card");
+    setState("idle");
+    setError(null);
+    setResult(null);
+    closeCamera();
+
+    try {
+      cameraStreamRef.current = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        }
+      });
+      setCameraOpen(true);
+    } catch (caught) {
+      setState("error");
+      setError(
+        caught instanceof Error
+          ? `Camera could not be opened: ${caught.message}`
+          : "Camera permission was not granted."
+      );
+    }
+  };
+
+  const captureCardFrame = async () => {
+    const video = cameraVideoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setState("error");
+      setError("The camera is still starting. Try again in a moment.");
+      return;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      setState("error");
+      setError("The camera frame could not be captured.");
+      return;
+    }
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.92)
+    );
+    if (!blob) {
+      setState("error");
+      setError("The camera frame could not be captured.");
+      return;
+    }
+
+    setCardImage(new File([blob], `business-card-${Date.now()}.jpg`, { type: "image/jpeg" }));
+    closeCamera();
+  };
+
+  const consumeProcessStream = async (
+    capture: CaptureAcceptedResponse,
+  ): Promise<WorkflowFullFlowResponse> => {
+    if (!capture.streamUrl) throw new Error("The processing stream is unavailable.");
+    const response = await fetch(capture.streamUrl, {
+      headers: { Accept: "text/event-stream" },
+    });
+    if (!response.ok || !response.body) {
+      throw new Error("The intelligence workflow could not start.");
+    }
+
+    const events: ProcessStageEvent[] = [];
+    let finalPayload:
+      | (RecommendationPackage & {
+          extractionHandoff: ExtractionHandoff;
+          evidenceBundle: EvidenceBundle;
+        })
+      | null = null;
+    let buffer = "";
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    const readEvent = (block: string) => {
+      const data = block
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trim())
+        .join("\n");
+      if (!data) return;
+      const event = JSON.parse(data) as ProcessStageEvent;
+      events.push(event);
+      setProcessEvents([...events]);
+      if (event.stage === "failed") {
+        throw new Error(event.message ?? "The intelligence workflow failed.");
+      }
+      if (event.stage === "handoff_ready" && event.payload) {
+        finalPayload = event.payload as unknown as typeof finalPayload;
+      }
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop() ?? "";
+      blocks.forEach(readEvent);
+      if (done) break;
+    }
+    if (buffer.trim()) readEvent(buffer);
+    const completedPayload = finalPayload as
+      | (RecommendationPackage & {
+          extractionHandoff: ExtractionHandoff;
+          evidenceBundle: EvidenceBundle;
+        })
+      | null;
+    if (!completedPayload) throw new Error("The processing stream ended without a result.");
+
+    const { extractionHandoff, evidenceBundle, ...recommendationPackage } = completedPayload;
+    return {
+      objective: {
+        existed: true,
+        created: false,
+        objectiveId: viewModel.activeObjective?.id ?? "objective",
+      },
+      capture,
+      extractionHandoff,
+      evidenceBundle,
+      recommendationPackage,
+      events,
+    };
+  };
+
+  const submitTextCapture = async (rawText: string) => {
+    if (!viewModel.activeObjective) {
+      throw new Error("Complete setup before capturing a relationship signal.");
+    }
+    const response = await fetch("/api/capture/text", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: viewModel.activeObjective.userId,
+        rawText,
+        eventContext: viewModel.activeObjective.eventContext ?? undefined,
+      }),
+    });
+    const payload = (await response.json()) as CaptureAcceptedResponse | ErrorResponse;
+    if (!response.ok) {
+      throw new Error("message" in payload ? payload.message : "The note could not be captured.");
+    }
+    return consumeProcessStream(payload as CaptureAcceptedResponse);
   };
 
   const submitVoiceCapture = async (blob: Blob) => {
     if (!viewModel.activeObjective || !objectiveSeed) {
-      throw new Error("Create a mission before capturing a relationship signal.");
+      throw new Error("Complete setup before capturing a relationship signal.");
     }
     const type = blob.type || "audio/webm";
     const form = new FormData();
@@ -366,43 +532,54 @@ export function CaptureSignal({
       setTranscriptStatus("OpenAI transcript ready");
     }
 
-    return runFullFlow({
-      userId: viewModel.activeObjective.userId,
-      conversationId: voiceCapture.conversationId,
-      requestId: voiceCapture.requestId,
-      eventContext: viewModel.activeObjective.eventContext ?? undefined,
-      objectiveSeed,
-      captureType: "voice",
-      status: "new",
-    });
+    return consumeProcessStream(voiceCapture);
+  };
+
+  const submitCardCapture = async (imageFile: File, meetingContext: string) => {
+    if (!viewModel.activeObjective || !objectiveSeed) {
+      throw new Error("Complete setup before capturing a relationship signal.");
+    }
+    const form = new FormData();
+    form.set("userId", viewModel.activeObjective.userId);
+    form.set("imageFile", imageFile);
+    if (meetingContext) form.set("manualTextFallback", meetingContext);
+    if (viewModel.activeObjective.eventContext) {
+      form.set("eventContext", viewModel.activeObjective.eventContext);
+    }
+
+    const response = await fetch("/api/capture/card", { method: "POST", body: form });
+    const payload = (await response.json()) as CardCaptureAcceptedResponse | ErrorResponse;
+    if (!response.ok) {
+      throw new Error("message" in payload ? payload.message : "The business card could not be recognized.");
+    }
+
+    const cardCapture = payload as CardCaptureAcceptedResponse;
+    if (cardCapture.cardText) setNote(cardCapture.cardText);
+    return consumeProcessStream(cardCapture);
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!viewModel.activeObjective || !objectiveSeed) {
       setState("error");
-      setError("Create a mission before capturing a relationship signal.");
+      setError("Complete setup before capturing a relationship signal.");
       return;
     }
     const rawText = note.trim();
     if (state === "submitting" || recordingState === "recording") return;
-    if (!rawText && !(captureMode === "voice" && audioBlob)) return;
+    if (!rawText && !(captureMode === "voice" && audioBlob) && !(captureMode === "card" && cardImage)) return;
 
     setState("submitting");
     setError(null);
+    setProcessEvents([]);
 
     try {
       const payload =
         captureMode === "voice" && audioBlob
           ? await submitVoiceCapture(audioBlob)
-          : await runFullFlow({
-          userId: viewModel.activeObjective.userId,
-          rawText,
-          eventContext: viewModel.activeObjective.eventContext ?? undefined,
-          objectiveSeed,
-          captureType: captureMode,
-          status: "new",
-        });
+          : captureMode === "card" && cardImage
+            ? await submitCardCapture(cardImage, rawText)
+          : await submitTextCapture(rawText);
 
       setResult(payload);
       setState("success");
@@ -422,7 +599,7 @@ export function CaptureSignal({
     Boolean(viewModel.activeObjective) &&
     !isSubmitting &&
     recordingState !== "recording" &&
-    Boolean(note.trim() || (captureMode === "voice" && audioBlob));
+    Boolean(note.trim() || (captureMode === "voice" && audioBlob) || (captureMode === "card" && cardImage));
   const candidate = result?.extractionHandoff.contactCandidate;
   const recommendation = result?.recommendationPackage.recommendation;
   const draft = result?.recommendationPackage.draft;
@@ -439,11 +616,11 @@ export function CaptureSignal({
         <article className="attention-card gap-card">
           <div className="section-label">
             <AlertTriangle size={18} />
-            <span>No active mission</span>
+            <span>Setup required</span>
           </div>
-          <p>Create a mission before capturing relationship signals.</p>
+          <p>Complete setup before capturing relationship signals.</p>
           <Link className="primary-action" href="/objective">
-            Set mission
+            Open setup
           </Link>
         </article>
       </section>
@@ -481,6 +658,23 @@ export function CaptureSignal({
           value={textareaValue}
         />
         <div className="capture-actions">
+          <input
+            accept="image/*"
+            capture="environment"
+            hidden
+            onChange={(event) => {
+              const image = event.target.files?.[0] ?? null;
+              setCardImage(image);
+              if (image) {
+                closeCamera();
+                setCaptureMode("card");
+                setError(null);
+                setResult(null);
+              }
+            }}
+            ref={cardInputRef}
+            type="file"
+          />
           <button
             aria-label={recordingState === "recording" ? "Stop recording voice note" : "Record voice note"}
             className={`round-tool ${captureMode === "voice" ? "is-active" : ""}`}
@@ -494,9 +688,7 @@ export function CaptureSignal({
             aria-label="Scan card"
             className={`round-tool ${captureMode === "card" ? "is-active" : ""}`}
             disabled={isSubmitting || recordingState === "recording"}
-            onClick={() =>
-              setCaptureMode((mode) => (mode === "card" ? "text" : "card"))
-            }
+            onClick={startCamera}
             type="button"
           >
             <ScanLine size={23} />
@@ -522,6 +714,11 @@ export function CaptureSignal({
               : transcriptStatus ?? "Voice transcript ready"}
           </p>
         ) : null}
+        {captureMode === "card" && cardImage ? (
+          <p className="voice-capture-status" aria-live="polite">
+            {cardImage.name} ready for recognition
+          </p>
+        ) : null}
         <p className="quiet-note">{viewModel.acceptableUseText}</p>
 
         {state === "error" && error ? (
@@ -529,6 +726,36 @@ export function CaptureSignal({
             <AlertTriangle size={18} />
             <span>{error}</span>
           </article>
+        ) : null}
+
+        {cameraOpen ? (
+          <div className="camera-overlay" role="dialog" aria-label="Business card camera" aria-modal="true">
+            <div className="camera-header">
+              <span>Align card within frame</span>
+              <button aria-label="Close camera" className="camera-icon-button" onClick={closeCamera} type="button">
+                <X size={24} />
+              </button>
+            </div>
+            <div className="camera-viewport">
+              <video autoPlay muted playsInline ref={cameraVideoRef} />
+              <div className="camera-guide" aria-hidden="true" />
+            </div>
+            <div className="camera-controls">
+              <button
+                aria-label="Choose card image"
+                className="camera-icon-button"
+                onClick={() => cardInputRef.current?.click()}
+                title="Choose image"
+                type="button"
+              >
+                <ImageUp size={24} />
+              </button>
+              <button aria-label="Capture card" className="camera-shutter" onClick={captureCardFrame} type="button">
+                <Camera size={30} />
+              </button>
+              <span className="camera-control-spacer" aria-hidden="true" />
+            </div>
+          </div>
         ) : null}
 
         {result && recommendation ? (
@@ -581,17 +808,19 @@ export function CaptureSignal({
                 />
               </div>
             ) : null}
-            <div className="stage-strip" aria-label="Workflow stages">
-              {result.events.map((event, index) => (
-                <span
-                  className={`stage-pill stage-${event.status}`}
-                  key={`${event.stage}-${event.status}-${event.timestamp}-${index}`}
-                >
-                  {event.stage.replaceAll("_", " ")}
-                </span>
-              ))}
-            </div>
           </section>
+        ) : null}
+        {processEvents.length ? (
+          <div className="stage-strip" aria-label="Workflow stages" aria-live="polite">
+            {processEvents.map((event, index) => (
+              <span
+                className={`stage-pill stage-${event.status}`}
+                key={`${event.stage}-${event.status}-${event.timestamp}-${index}`}
+              >
+                {event.stage.replaceAll("_", " ")}
+              </span>
+            ))}
+          </div>
         ) : null}
       </form>
     </section>

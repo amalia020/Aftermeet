@@ -101,6 +101,7 @@ export type SourceType =
   | "cala_verified_fact"
   | "personal_website"
   | "search_snippet"
+  | "user_confirmed"
   | "manual"
   | "unknown";
 

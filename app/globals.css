@@ -13,6 +13,7 @@
   --mint: #8de6bd;
   --amber: #f3c66b;
   --shadow: 0 22px 60px rgba(0, 0, 0, 0.34);
+  --bottom-nav-clearance: calc(110px + env(safe-area-inset-bottom));
 }
 
 * {
@@ -137,6 +138,8 @@ a {
 
 .screen {
   padding: clamp(28px, 6vw, 46px) clamp(20px, 5vw, 42px);
+  padding-bottom: var(--bottom-nav-clearance);
+  scroll-padding-bottom: var(--bottom-nav-clearance);
 }
 
 .screen-kicker,
@@ -447,7 +450,7 @@ h2 {
   border-top: 1px solid var(--line);
   bottom: 0;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   left: 0;
   min-height: 78px;
   position: fixed;
@@ -723,6 +726,90 @@ h2 {
   text-transform: uppercase;
 }
 
+.camera-overlay {
+  background: #07080b;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  inset: 0;
+  position: fixed;
+  z-index: 1000;
+}
+
+.camera-header,
+.camera-controls {
+  align-items: center;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  padding: max(18px, env(safe-area-inset-top)) 20px 18px;
+}
+
+.camera-header span {
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.camera-viewport {
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.camera-viewport video {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.camera-guide {
+  aspect-ratio: 1.75;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.34);
+  left: 50%;
+  max-height: 72%;
+  max-width: 680px;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(86vw, 680px);
+}
+
+.camera-controls {
+  grid-template-columns: 56px 1fr 56px;
+  justify-items: center;
+  padding: 18px 20px max(24px, env(safe-area-inset-bottom));
+}
+
+.camera-icon-button,
+.camera-shutter {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.36);
+  color: #fff;
+  display: inline-flex;
+  justify-content: center;
+}
+
+.camera-icon-button {
+  height: 48px;
+  width: 48px;
+}
+
+.camera-shutter {
+  background: #fff;
+  border: 6px solid rgba(255, 255, 255, 0.35);
+  border-radius: 50%;
+  color: #090a0e;
+  height: 76px;
+  width: 76px;
+}
+
+.camera-control-spacer {
+  height: 48px;
+  width: 48px;
+}
+
 .spin-icon {
   animation: spin 900ms linear infinite;
 }
@@ -936,6 +1023,195 @@ h2 {
   line-height: 1.45;
   margin: 0;
   padding-left: 20px;
+}
+
+.source-register {
+  display: grid;
+  gap: 10px;
+}
+
+.source-fact {
+  align-items: flex-start;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 1fr auto;
+  padding: 16px;
+}
+
+.source-fact-copy p {
+  line-height: 1.45;
+}
+
+.source-fact-meta {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  gap: 8px 12px;
+  margin-top: 10px;
+}
+
+.source-fact-meta a {
+  align-items: center;
+  color: var(--cyan);
+  display: inline-flex;
+  gap: 5px;
+}
+
+.source-status {
+  border: 1px solid currentColor;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 3px 7px;
+  text-transform: uppercase;
+}
+
+.source-status.source-captured {
+  color: var(--cyan);
+}
+
+.source-status.source-confirmed {
+  color: var(--mint);
+}
+
+.source-status.source-cited {
+  color: var(--violet);
+}
+
+.source-status.source-ai_suggested {
+  color: var(--coral);
+}
+
+.source-remove {
+  height: 40px;
+  width: 40px;
+}
+
+.evidence-profile {
+  display: grid;
+  gap: 18px;
+}
+
+.evidence-profile-summary {
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.evidence-profile-attributes {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.evidence-profile-attributes div {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--line);
+  padding: 12px 14px;
+}
+
+.evidence-profile-attributes span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.evidence-profile-attributes strong {
+  display: block;
+  margin-top: 5px;
+}
+
+.evidence-profile-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.evidence-tag {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.8rem;
+  padding: 5px 10px;
+}
+
+.evidence-profile-group {
+  display: grid;
+  gap: 10px;
+}
+
+.evidence-profile-group > strong {
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.evidence-profile-group ul {
+  color: var(--muted);
+  display: grid;
+  gap: 8px;
+  line-height: 1.45;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.evidence-profile-sources {
+  align-items: center;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  gap: 8px 12px;
+  padding-top: 14px;
+}
+
+.evidence-profile-sources a {
+  align-items: center;
+  color: inherit;
+  display: inline-flex;
+  gap: 5px;
+}
+
+.confirmation-panel {
+  border: 1px solid var(--cyan);
+  margin-top: 28px;
+  padding: 24px;
+}
+
+.confirmation-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 20px;
+}
+
+.confirmation-grid label {
+  display: grid;
+  gap: 7px;
+}
+
+.confirmation-grid label span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.confirmation-grid input {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  min-height: 48px;
+  padding: 0 12px;
+}
+
+.confirmation-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
 }
 
 .policy-list {
@@ -1276,6 +1552,10 @@ h2 {
 }
 
 @media (min-width: 760px) {
+  :root {
+    --bottom-nav-clearance: 120px;
+  }
+
   .app-shell {
     padding-bottom: 0;
   }
@@ -1291,9 +1571,6 @@ h2 {
     width: calc(100% - 48px);
   }
 
-  .screen {
-    padding-bottom: 120px;
-  }
 }
 
 @media (max-width: 560px) {
@@ -1347,6 +1624,15 @@ h2 {
 
   .capture-submit {
     grid-column: 1 / -1;
+  }
+
+  .confirmation-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .confirmation-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .bridge-card {

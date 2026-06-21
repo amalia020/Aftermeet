@@ -104,8 +104,8 @@ export function ObjectiveEditor({ objective }: { objective: UserObjectiveProfile
 
   return (
     <section className="screen objective-screen">
-      <div className="screen-kicker">Active mission</div>
-      <h1>Mission control</h1>
+      <div className="screen-kicker">Setup</div>
+      <h1>Relationship setup</h1>
       <form className="objective-form" onSubmit={submit}>
         <div className="objective-grid">
           <label>
@@ -174,7 +174,7 @@ export function ObjectiveEditor({ objective }: { objective: UserObjectiveProfile
 
         <button className="primary-action objective-save" disabled={saving} type="submit">
           {saved ? <Check size={17} /> : <Save size={17} />}
-          {saved ? "Saved" : "Save mission"}
+          {saved ? "Saved" : "Save setup"}
         </button>
       </form>
     </section>

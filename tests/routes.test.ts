@@ -13,12 +13,18 @@ import { POST as postWebFallback } from "@/app/api/enrich/web/route";
 import { POST as postCaptureEnrichWorkflow } from "@/app/api/workflows/capture-enrich/route";
 import { POST as postCaptureWebFallbackWorkflow } from "@/app/api/workflows/capture-web-fallback/route";
 import { POST as postFullFlowWorkflow } from "@/app/api/workflows/full-flow/route";
+import {
+  DELETE as deleteContact,
+  PATCH as confirmContact,
+} from "@/app/api/contacts/[id]/route";
+import { DELETE as deleteEvidence } from "@/app/api/evidence/[id]/route";
 import { GET as getOpenApi } from "@/app/api/openapi/route";
 import type {
   ActiveObjectiveResponse,
   CalaEnrichmentResponse,
   CaptureAcceptedResponse,
   CardCaptureAcceptedResponse,
+  ContactConfirmationResponse,
   ErrorResponse,
   WebFallbackResponse,
   VoiceCaptureAcceptedResponse,
@@ -179,15 +185,69 @@ describe("objective and capture routes", () => {
     expect(manual.status).toBe(202);
     expect(manualBody.cardStatus).toBe("manual_fallback");
 
+    const imageForm = new FormData();
+    imageForm.set("userId", DEMO_USER_ID);
+    imageForm.set("imageFile", new File(["not-a-real-image"], "card.png", { type: "image/png" }));
     const imageOnly = await postCardCapture(
-      new Request("http://test/api/capture/card", {
-        method: "POST",
-        body: JSON.stringify({ userId: DEMO_USER_ID, imageFile: { name: "card.png" } })
-      })
+      new Request("http://test/api/capture/card", { method: "POST", body: imageForm })
     );
     const error = await json<ErrorResponse>(imageOnly);
     expect(imageOnly.status).toBe(422);
     expect(error.error).toBe("CARD_FALLBACK_REQUIRED");
+  });
+
+  it("recognizes a card image and returns structured contact fields", async () => {
+    const previousKey = process.env.GEMINI_API_KEY;
+    process.env.GEMINI_API_KEY = "test-key";
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          modelVersion: "gemini-test",
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      rawText: "Maya Linden\nFounder, Recursive\nmaya@recursive.example",
+                      name: "Maya Linden",
+                      role: "Founder",
+                      company: "Recursive",
+                      email: "maya@recursive.example"
+                    })
+                  }
+                ]
+              }
+            }
+          ]
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+
+    try {
+      const form = new FormData();
+      form.set("userId", DEMO_USER_ID);
+      form.set("imageFile", new File(["image-bytes"], "card.jpg", { type: "image/jpeg" }));
+      const response = await postCardCapture(
+        new Request("http://test/api/capture/card", { method: "POST", body: form })
+      );
+      const body = await json<CardCaptureAcceptedResponse>(response);
+
+      expect(response.status).toBe(202);
+      expect(body.cardStatus).toBe("captured");
+      expect(body.recognitionProvider).toBe("gemini");
+      expect(body.contactCandidate).toMatchObject({
+        name: "Maya Linden",
+        company: "Recursive",
+        email: "maya@recursive.example"
+      });
+      expect(body.cardText).toContain("Maya Linden");
+    } finally {
+      fetchMock.mockRestore();
+      if (previousKey === undefined) delete process.env.GEMINI_API_KEY;
+      else process.env.GEMINI_API_KEY = previousKey;
+    }
   });
 });
 
@@ -361,6 +421,7 @@ describe("process and enrichment routes", () => {
           role: "CEO",
           query: "Tom Nicholson Cala professional context",
           calaAttempted: true,
+          calaMatchConfidence: 0.4,
           allowUncitedClaims: true
         })
       })
@@ -371,6 +432,7 @@ describe("process and enrichment routes", () => {
     expect(body.available).toBe(true);
     expect(body.claims).toHaveLength(2);
     expect(body.warnings.join(" ")).toContain("uncited claims were accepted temporarily");
+    expect(body.warnings.join(" ")).toContain("may be inaccurate");
     vi.unstubAllGlobals();
   });
 
@@ -545,5 +607,82 @@ describe("process and enrichment routes", () => {
     });
 
     expect(missing).toEqual([]);
+  });
+});
+
+describe("contact trust controls", () => {
+  it("persists confirmed identity and regenerates the recommendation", async () => {
+    const flow = await postFullFlowWorkflow(
+      new Request("http://test/api/workflows/full-flow", {
+        method: "POST",
+        body: JSON.stringify({
+          userId: DEMO_USER_ID,
+          rawText: demoConversationText,
+        }),
+      }),
+    );
+    const flowBody = await json<WorkflowFullFlowResponse>(flow);
+    const contactId = flowBody.evidenceBundle.contactId!;
+
+    const response = await confirmContact(
+      new Request(`http://test/api/contacts/${contactId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          userId: DEMO_USER_ID,
+          name: "Jazzley Louisville",
+          role: "Founder",
+          company: "EkkoTech",
+          website: "https://ekkotech.nl",
+        }),
+      }),
+      { params: Promise.resolve({ id: contactId }) },
+    );
+    const body = await json<ContactConfirmationResponse>(response);
+
+    expect(response.status).toBe(200);
+    expect(body.contact.entityMatchConfidence).toBe(1);
+    expect(body.recommendationPackage?.recommendation.recommendedAction).not.toBe(
+      "CONFIRM_DETAILS",
+    );
+  });
+
+  it("deletes evidence and then cascades contact deletion", async () => {
+    const flow = await postFullFlowWorkflow(
+      new Request("http://test/api/workflows/full-flow", {
+        method: "POST",
+        body: JSON.stringify({
+          userId: DEMO_USER_ID,
+          rawText: demoConversationText,
+        }),
+      }),
+    );
+    const flowBody = await json<WorkflowFullFlowResponse>(flow);
+    const contactId = flowBody.evidenceBundle.contactId!;
+    const factId = flowBody.evidenceBundle.evidenceFacts[0]?.id;
+    expect(factId).toBeTruthy();
+
+    const factResponse = await deleteEvidence(
+      new Request(`http://test/api/evidence/${factId}?userId=${DEMO_USER_ID}`, {
+        method: "DELETE",
+      }),
+      { params: Promise.resolve({ id: factId! }) },
+    );
+    expect(factResponse.status).toBe(200);
+
+    const contactResponse = await deleteContact(
+      new Request(`http://test/api/contacts/${contactId}?userId=${DEMO_USER_ID}`, {
+        method: "DELETE",
+      }),
+      { params: Promise.resolve({ id: contactId }) },
+    );
+    expect(contactResponse.status).toBe(200);
+
+    const repeated = await deleteContact(
+      new Request(`http://test/api/contacts/${contactId}?userId=${DEMO_USER_ID}`, {
+        method: "DELETE",
+      }),
+      { params: Promise.resolve({ id: contactId }) },
+    );
+    expect(repeated.status).toBe(404);
   });
 });

@@ -48,6 +48,75 @@ function parseGeminiJson(text: string): WebContextResult | null {
   }
 }
 
+interface GeminiGroundingMetadata {
+  groundingChunks?: Array<{
+    web?: { uri?: string; title?: string };
+  }>;
+  groundingSupports?: Array<{
+    segment?: { text?: string; startIndex?: number; endIndex?: number };
+    groundingChunkIndices?: number[];
+  }>;
+  webSearchQueries?: string[];
+}
+
+interface GeminiGroundedCandidate {
+  content?: { parts?: { text?: string }[] };
+  groundingMetadata?: GeminiGroundingMetadata;
+}
+
+function normalizeGroundedText(text: string): string {
+  return text
+    .replace(/^[\s\x5b\x5d{},]*"?(?:text|fact)"?\s*:\s*"?/i, "")
+    .replace(/["\s,}\]]+$/, "")
+    .trim();
+}
+
+export function parseGroundedGeminiCandidate(
+  candidate: GeminiGroundedCandidate,
+  retrievedAt = new Date().toISOString()
+): WebContextResult | null {
+  const text = candidate.content?.parts?.find((part) => part.text)?.text ?? "";
+  const parsed = parseGeminiJson(text);
+  const chunks = candidate.groundingMetadata?.groundingChunks ?? [];
+  const supports = candidate.groundingMetadata?.groundingSupports ?? [];
+  const groundedClaims: WebContextClaim[] = [];
+
+  for (const support of supports) {
+    const fact = normalizeGroundedText(support.segment?.text ?? "");
+    if (!fact) continue;
+    for (const index of support.groundingChunkIndices ?? []) {
+      const sourceUrl = chunks[index]?.web?.uri;
+      if (!sourceUrl) continue;
+      groundedClaims.push({
+        text: fact,
+        sourceUrl,
+        sourceType: inferSourceTypeFromUrl(sourceUrl)
+      });
+    }
+  }
+
+  const directClaims =
+    parsed?.claims.filter(
+      (claim) =>
+        Boolean(claim.sourceUrl) ||
+        !groundedClaims.some((grounded) => grounded.text === claim.text)
+    ) ?? [];
+  const claims = [...directClaims, ...groundedClaims].filter(
+    (claim, index, all) =>
+      all.findIndex(
+        (other) => other.text === claim.text && other.sourceUrl === claim.sourceUrl
+      ) === index
+  );
+  if (!parsed && !claims.length) return null;
+
+  return {
+    summary: parsed?.summary || text.trim(),
+    claims,
+    retrievedAt: parsed?.retrievedAt ?? retrievedAt,
+    available: claims.length > 0
+  };
+}
+
 export interface GeminiJsonRequest {
   system: string;
   user: string;
@@ -132,6 +201,7 @@ export async function geminiWebContext(input: {
   role?: string;
   query: string;
   now?: Date;
+  timeoutMs?: number;
 }): Promise<WebContextResult> {
   const env = getServerEnv();
   const searchSubject = `${input.name ?? ""} ${input.company ?? ""} ${input.query}`.toLowerCase();
@@ -149,22 +219,26 @@ export async function geminiWebContext(input: {
   }
 
   const prompt = [
-    "You retrieve public, professional context about a person or company the user met at an event.",
-    "Use only grounded web results. Return concise professional facts, each with its source URL.",
+    "Build a concise public professional profile about a person the user met at an event.",
+    "Search for current roles, companies, education, technical expertise, public projects, and professional achievements.",
+    "Use only grounded web results. Include only facts clearly attributable to the named person.",
     "Do not include personal, sensitive, or non-professional information. Do not guess.",
-    "If results do not clearly match, return available=false. Return JSON only.",
+    "If identity is ambiguous, say so. Return JSON only.",
     "",
     `Person/company: ${input.name ?? "Unknown"} - ${input.role ?? "Unknown role"} at ${
       input.company ?? "Unknown company"
     }`,
     `Question: ${input.query}`,
-    "Return: summary, claims (text + sourceUrl), available."
+    "Return: summary, claims (text), available. Citation URLs are supplied separately by Google Search grounding."
   ].join("\n");
 
   const modelCandidates = Array.from(
     new Set([env.geminiModel, "gemini-flash-latest", "gemini-2.5-flash"])
   );
   const attemptWarnings: string[] = [];
+  const timeoutMs = input.timeoutMs ?? 15_000;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     for (const model of modelCandidates) {
@@ -179,7 +253,8 @@ export async function geminiWebContext(input: {
             contents: [{ role: "user", parts: [{ text: prompt }] }],
             tools,
             generationConfig: { temperature: 0 }
-          })
+          }),
+          signal: controller.signal
         }
       );
 
@@ -194,13 +269,20 @@ export async function geminiWebContext(input: {
         continue;
       }
 
-      const body = (await response.json()) as {
-        candidates?: { content?: { parts?: { text?: string }[] } }[];
-      };
-      const text = body.candidates?.[0]?.content?.parts?.find((part) => part.text)?.text ?? "";
-      const parsed = parseGeminiJson(text);
+      const body = (await response.json()) as { candidates?: GeminiGroundedCandidate[] };
+      const parsed = body.candidates?.[0]
+        ? parseGroundedGeminiCandidate(body.candidates[0])
+        : null;
       if (!parsed) {
-        attemptWarnings.push(`Gemini model ${model} returned non-JSON or empty content.`);
+        attemptWarnings.push(
+          `Gemini model ${model} returned no parseable text or grounded citations.`
+        );
+        continue;
+      }
+      if (!parsed.claims.length) {
+        attemptWarnings.push(
+          `Gemini model ${model} returned content without grounded citation metadata.`
+        );
         continue;
       }
       return {
@@ -219,13 +301,22 @@ export async function geminiWebContext(input: {
         ? attemptWarnings
         : ["Gemini web fallback returned no usable model response."]
     };
-  } catch {
+  } catch (error) {
+    const timedOut = error instanceof Error && error.name === "AbortError";
     return {
       summary: "",
       claims: [],
       retrievedAt: new Date().toISOString(),
       available: false,
-      warnings: ["Gemini web fallback request failed before a response was received."]
+      warnings: [
+        timedOut
+          ? `Gemini web fallback timed out after ${timeoutMs}ms; continuing with captured evidence.`
+          : error instanceof Error
+          ? `Gemini web fallback request failed: ${error.message}`
+          : "Gemini web fallback request failed before a response was received."
+      ]
     };
+  } finally {
+    clearTimeout(timeout);
   }
 }

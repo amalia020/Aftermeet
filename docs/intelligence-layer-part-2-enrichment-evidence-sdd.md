@@ -147,7 +147,7 @@ flowchart LR
 
 - Cala is strongest for company, fund, financial, regulatory, and market facts.
 - Cala is not expected to identify arbitrary private persons.
-- Gemini web fallback is lower confidence than Cala and must be citation-backed.
+- Gemini web fallback is lower confidence than Cala. Cited claims are preferred; uncited claims may be retained only as visibly unverified, low-confidence context.
 - Enrichment is not required for every contact.
 - The system can continue without public context.
 
@@ -158,8 +158,8 @@ flowchart LR
 - Do not crawl, paginate, or harvest profiles.
 - Web search is a query through a search-enabled API, not a scraper.
 - Web fallback runs only after Cala has no match or a match below the medium threshold.
-- Every web-derived fact must carry a citation URL.
-- No citation means the claim is discarded.
+- Cited web facts must carry their citation URL and source record.
+- An uncited claim may be retained as `unknown` context with reduced extraction confidence, `safeForDraft=false`, and a user-visible confirmation warning.
 - Public context must be professional and relevant.
 - Low entity confidence blocks draft use of enriched facts.
 - If neither Cala nor web fallback yields data, return "public context unavailable" and do not invent.
@@ -555,7 +555,7 @@ Safety thresholds:
 - Cala and Gemini calls use timeouts.
 - Provider errors return typed unavailable states, not thrown failures that break the pipeline.
 - Web fallback cannot run unless the request records that Cala was attempted.
-- Missing citation discards the claim.
+- Missing citations downgrade claims to unverified context; they never become draft-safe without user confirmation or independent sourcing.
 - Low entity match returns `needsUserConfirmation: true`.
 
 ### Logging, Metrics, Tracing, Alerting
@@ -566,7 +566,7 @@ Log with request IDs:
 - Cala availability and latency.
 - Gemini fallback usage and latency.
 - Number of source records and evidence facts created.
-- Claims discarded for no citation, personal content, or low match.
+- Claims downgraded for no citation, and claims discarded for personal content or low match.
 - Confidence distribution.
 
 Metrics:
@@ -676,7 +676,8 @@ async function calaRetrieveEntity(entityId: string): Promise<CalaEntityDetail>;
 #### Responsibilities
 
 - Retrieve public professional context through grounded search only.
-- Return concise claims with citation URLs.
+- Return concise claims and consume Google Search grounding metadata when available.
+- Preserve uncited professional claims only as low-confidence context requiring confirmation.
 - Refuse unclear matches and sensitive content.
 
 #### Interface
@@ -711,7 +712,7 @@ async function geminiWebContext(input: {
 #### Verification
 
 - Mock grounded response with valid citations.
-- Test no-citation claim is discarded.
+- Test no-citation claim is retained as unverified, low-confidence, and not draft-safe.
 - Test personal/sensitive content is filtered.
 - Test fallback does not run before Cala.
 
@@ -839,7 +840,7 @@ function buildEvidenceFacts(input: {
 | P2-REQ-001 Cala is primary enrichment provider. | Enrichment coordinator, Cala provider | Integration test for provider order |
 | P2-REQ-002 Web fallback runs only after no/low Cala match. | Trigger policy, web route guard | Unit and integration tests |
 | P2-REQ-003 Only met contacts are enriched. | Authorization guard, repository check | Integration test |
-| P2-REQ-004 Every web fact has a citation URL. | Gemini fallback parser | Unit test discards uncited claims |
+| P2-REQ-004 Cited web facts retain URLs; uncited claims are visibly downgraded and blocked from drafts. | Gemini fallback parser, fact confidence, source register | Unit test verifies low-confidence unverified handling |
 | P2-REQ-005 No LinkedIn scraping or crawling. | Provider policy, route guard | Code review and tests for unsupported source |
 | P2-REQ-006 Source confidence is deterministic. | `sourceConfidence.ts` | Unit tests |
 | P2-REQ-007 Entity match confidence labels ambiguity. | `entityResolution.ts` | Unit tests |

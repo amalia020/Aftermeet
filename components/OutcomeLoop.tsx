@@ -11,9 +11,16 @@ import {
 } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import type { OutcomeLoopViewModel } from "@/lib/frontend/viewModels";
-import type { OutcomeCreateResponse, TractionSummary } from "@/lib/types";
+import type { OutcomeCreateResponse, OutcomeType, TractionSummary } from "@/lib/types";
 
-const optionIcons = [CheckCircle2, CalendarCheck, Handshake, Briefcase, Ban, Ban];
+const optionIcons: Partial<Record<OutcomeType, typeof CheckCircle2>> = {
+  reply: CheckCircle2,
+  booked: CalendarCheck,
+  wtp: Handshake,
+  paid: Briefcase,
+  marked_not_relevant: Ban,
+  ignored: Ban,
+};
 
 export function OutcomeLoop({ loop }: { loop: OutcomeLoopViewModel }) {
   const router = useRouter();
@@ -46,6 +53,32 @@ export function OutcomeLoop({ loop }: { loop: OutcomeLoopViewModel }) {
     }
   };
 
+  if (loop.state === "empty" || !loop.target) {
+    return (
+      <section className="screen loop-screen">
+        <div className="loop-hero">
+          <Avatar initials={loop.contact.initials} tone="muted" size="lg" />
+          <h1>No moves to log yet</h1>
+          <p>{loop.contact.location}</p>
+        </div>
+        <div className="traction-strip">
+          <div>
+            <strong>{summary.repliesReceived}</strong>
+            <span>Replies</span>
+          </div>
+          <div>
+            <strong>{summary.bookedMeetings}</strong>
+            <span>Booked</span>
+          </div>
+          <div>
+            <strong>{summary.actionsCompleted}</strong>
+            <span>Moves logged</span>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="screen loop-screen">
       <div className="loop-hero">
@@ -55,8 +88,8 @@ export function OutcomeLoop({ loop }: { loop: OutcomeLoopViewModel }) {
       </div>
 
       <div className="outcome-options">
-        {loop.options.map((option, index) => {
-          const Icon = optionIcons[index] ?? CheckCircle2;
+        {loop.options.map((option) => {
+          const Icon = optionIcons[option.outcomeType] ?? CheckCircle2;
           const selected = selectedId === option.id;
           return (
             <button

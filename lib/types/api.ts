@@ -5,7 +5,7 @@ import type {
   ISODateTime,
   ProcessStageEvent,
 } from "./common";
-import type { ContactCandidate } from "./contact";
+import type { Contact, ContactCandidate } from "./contact";
 import type { ConversationAtoms } from "./conversation";
 import type {
   CalaEntityCandidate,
@@ -53,6 +53,30 @@ export interface VoiceCaptureAcceptedResponse extends CaptureAcceptedResponse {
 
 export interface CardCaptureAcceptedResponse extends CaptureAcceptedResponse {
   cardStatus: "captured" | "manual_fallback";
+  cardText?: string;
+  contactCandidate?: ContactCandidate;
+  recognitionProvider?: "gemini";
+  recognitionModel?: string;
+  warnings?: string[];
+}
+
+export interface ContactConfirmationRequest extends ContactCandidate {
+  userId: Id;
+}
+
+export interface ContactConfirmationResponse {
+  contact: Contact;
+  recommendationPackage?: RecommendationPackage;
+}
+
+export interface ContactDeleteResponse {
+  deleted: true;
+  contactId: Id;
+}
+
+export interface EvidenceFactDeleteResponse {
+  deleted: true;
+  factId: Id;
 }
 
 export interface ActiveObjectiveRequest {

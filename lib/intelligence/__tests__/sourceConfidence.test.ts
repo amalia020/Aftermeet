@@ -66,6 +66,15 @@ describe("sourceConfidence", () => {
     expect(snippet).toBeLessThan(card);
   });
 
+  it("treats explicit user confirmation as strong first-party provenance", () => {
+    const confirmed = sourceConfidence(
+      record({ provider: "manual", sourceType: "user_confirmed" }),
+      NOW,
+      1,
+    );
+    expect(confirmed).toBeGreaterThanOrEqual(0.9);
+  });
+
   it("rewards a cited URL via provenance", () => {
     const withUrl = sourceConfidence(
       record({ sourceType: "reputable_news", sourceUrl: "https://reuters.com/x" }),

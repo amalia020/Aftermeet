@@ -8,16 +8,10 @@ import {
   listContacts,
   listEvidenceFacts,
   listOutcomes,
+  listPublicContext,
   listRecommendations,
   listSourceRecords,
 } from "@/lib/db/queries";
-import {
-  dailyBrief as demoDailyBrief,
-  missionRadar as demoMissionRadar,
-  outcomeLoop as demoOutcomeLoop,
-  personIntelligence as demoPersonIntelligence,
-  relationshipBoard as demoRelationshipBoard,
-} from "@/lib/frontend/mockData";
 import {
   scoreStoredRelationshipMoves,
   selectStoredDailyMoves
@@ -28,6 +22,7 @@ import type {
   CaptureScreenViewModel,
   DailyMoveDecision,
   Draft,
+  EvidenceProfile,
   FollowUpBoardViewModel as BaseFollowUpBoardViewModel,
   Id,
   OpportunityTerminalViewModel,
@@ -35,10 +30,35 @@ import type {
   OutcomeType,
   PersonViewModel,
   RecommendedActionType,
+  SourceType,
   TractionSummary,
   TractionViewModel,
   UserObjectiveProfile,
 } from "@/lib/types";
+
+export type EvidenceProvenance = "captured" | "confirmed" | "cited" | "ai_suggested";
+
+export function evidenceProvenance(input: {
+  sourceType: SourceType;
+  sourceUrl?: string | null;
+}): { provenance: EvidenceProvenance; sourceLabel: string } {
+  if (input.sourceType === "user_confirmed") {
+    return { provenance: "confirmed", sourceLabel: "Confirmed by you" };
+  }
+  if (["user_voice_note", "business_card", "manual"].includes(input.sourceType)) {
+    return { provenance: "captured", sourceLabel: "Captured by you" };
+  }
+  if (input.sourceType === "cala_verified_fact") {
+    return { provenance: "cited", sourceLabel: "Cala-verified public source" };
+  }
+  if (input.sourceUrl) {
+    return { provenance: "cited", sourceLabel: "Cited public source" };
+  }
+  return {
+    provenance: "ai_suggested",
+    sourceLabel: "AI-suggested; verify before use"
+  };
+}
 
 export interface BriefMove {
   id: string;
@@ -100,12 +120,27 @@ export interface PersonIntelligenceViewModel extends PersonViewModel {
     company: string;
     initials: string;
     location: string;
+    email?: string;
+    phone?: string;
+    website?: string;
+    linkedinUrl?: string;
   };
   warmth: "High" | "Medium" | "Cooling";
   missionFit: "Strong" | "Promising" | "Weak";
   systemNote: string;
   evidence: {
-    facts: string[];
+    // Cohesive profile synthesized from every source — rendered as ONE card on
+    // the contact screen instead of one card per raw fact.
+    profile: EvidenceProfile;
+    // Distinct provenance labels behind the profile (e.g. "Cala-verified public
+    // source", "Cited public source", "Captured by you").
+    sourceLabels: string[];
+    sources: Array<{
+      sourceName: string;
+      sourceUrl?: string;
+      provenance: EvidenceProvenance;
+      sourceLabel: string;
+    }>;
     sourceCount: number;
     warnings: string[];
     confidence: {
@@ -402,16 +437,15 @@ function tractionSummary(userId: Id): TractionSummary {
 
 function emptyBrief(userId: Id): DailyBriefViewModel {
   return {
-    ...demoDailyBrief,
     userId,
     activeObjective: null,
-    missionTitle: "Set a mission",
-    missionContext: "Create a mission before capturing relationship signals.",
+    missionTitle: "Complete setup",
+    missionContext: "Add your relationship priorities before capturing signals.",
     currentDate: formatDate(),
-    headline: "No active mission yet",
+    headline: "Setup is required before analysis",
     moves: [],
     cooling: undefined,
-    missionGap: "Add a mission to start ranking relationship opportunities.",
+    missionGap: "Add your setup details to start ranking relationship opportunities.",
     proof: [
       { label: "Today", value: "0", note: "high-leverage moves" },
       { label: "Warm", value: "0", note: "relationships captured" },
@@ -429,7 +463,7 @@ export function getDailyBriefViewModel(userId = DEMO_USER_ID): DailyBriefViewMod
       ...emptyBrief(userId),
       activeObjective: objective,
       missionTitle: missionTitle(objective),
-      missionContext: objective.eventContext ?? "Active mission context",
+      missionContext: objective.eventContext ?? "Active setup context",
       headline: "No critical relationship moves today",
       missionGap: missionGap(objective),
     };
@@ -457,7 +491,7 @@ export function getDailyBriefViewModel(userId = DEMO_USER_ID): DailyBriefViewMod
     userId,
     activeObjective: objective,
     missionTitle: missionTitle(objective),
-    missionContext: objective.eventContext ?? "Active mission context",
+    missionContext: objective.eventContext ?? "Active setup context",
     currentDate: formatDate(),
     headline: moves.length
       ? `${moves.length} best move${moves.length === 1 ? "" : "s"} can advance ${missionTitle(objective)}`
@@ -473,12 +507,24 @@ export function getDailyBriefViewModel(userId = DEMO_USER_ID): DailyBriefViewMod
   };
 }
 
+function missionGapNode(objective: UserObjectiveProfile): RadarNode {
+  return {
+    id: "mission-gap",
+    name: "Mission gap",
+    initials: "MG",
+    x: 52,
+    y: 18,
+    state: "gap",
+    note: missionGap(objective),
+  };
+}
+
 export function getMissionRadarViewModel(userId = DEMO_USER_ID): MissionRadarViewModel {
   const objective = activeObjective(userId);
   if (!objective) {
     return {
       objective: null,
-      missionTitle: "Set a mission",
+      missionTitle: "Complete setup",
       nodes: [],
       bridges: [],
     };
@@ -486,9 +532,10 @@ export function getMissionRadarViewModel(userId = DEMO_USER_ID): MissionRadarVie
   const recs = liveRecommendations(userId);
   if (!recs.length) {
     return {
-      ...demoMissionRadar,
       objective,
       missionTitle: missionTitle(objective),
+      nodes: [missionGapNode(objective)],
+      bridges: [],
     };
   }
 
@@ -519,15 +566,7 @@ export function getMissionRadarViewModel(userId = DEMO_USER_ID): MissionRadarVie
     };
   });
 
-  nodes.push({
-    id: "mission-gap",
-    name: "Mission gap",
-    initials: "MG",
-    x: 52,
-    y: 18,
-    state: "gap",
-    note: missionGap(objective),
-  });
+  nodes.push(missionGapNode(objective));
 
   const bridges = scoredMoves
     .filter(
@@ -580,20 +619,8 @@ function getRecommendationForContactSafe(contactId: Id, userId: Id): ActionRecom
   return liveRecommendations(userId).find((rec) => rec.contactId === contactId) ?? null;
 }
 
-export function getRelationshipBoardViewModel(userId = DEMO_USER_ID): RelationshipBoardViewModel {
-  const recs = liveRecommendations(userId);
-  if (!recs.length) {
-    return {
-      state: "empty",
-      columns: [],
-      sections: demoRelationshipBoard.sections.map((section) => ({
-        ...section,
-        cards: [],
-      })),
-    };
-  }
-
-  const sections: BoardSection[] = [
+function emptyBoardSections(): BoardSection[] {
+  return [
     {
       id: "needs-action",
       title: "Act Today",
@@ -630,6 +657,19 @@ export function getRelationshipBoardViewModel(userId = DEMO_USER_ID): Relationsh
       cards: [],
     },
   ];
+}
+
+export function getRelationshipBoardViewModel(userId = DEMO_USER_ID): RelationshipBoardViewModel {
+  const recs = liveRecommendations(userId);
+  if (!recs.length) {
+    return {
+      state: "empty",
+      columns: [],
+      sections: emptyBoardSections(),
+    };
+  }
+
+  const sections: BoardSection[] = emptyBoardSections();
 
   const scoredMoves = scoreStoredRelationshipMoves({
     userId,
@@ -666,23 +706,24 @@ function warmthLabel(rec?: ActionRecommendation): PersonIntelligenceViewModel["w
   return "Medium";
 }
 
-function fallbackPerson(): PersonIntelligenceViewModel {
-  const recommendation = {
-    ...demoPersonIntelligence.recommendation,
-    whyNow: [demoPersonIntelligence.systemNote],
-    whyThisAction: [demoPersonIntelligence.recommendation.reason],
-    whyNot: [],
-    whatToAvoid: [demoPersonIntelligence.recommendation.avoid],
-    risks: [],
-    safeFacts: [],
-    blockedFacts: [],
-    costOfSilence: "Demo policy preview",
-  };
+function emptyPerson(): PersonIntelligenceViewModel {
   return {
-    ...demoPersonIntelligence,
-    recommendation,
+    contactId: "",
+    state: "empty",
+    contact: {
+      name: "No contact selected",
+      role: "Relationship contact",
+      company: "",
+      initials: "—",
+      location: "Capture a relationship to generate intelligence.",
+    },
+    warmth: "Medium",
+    missionFit: "Weak",
+    systemNote: "Nothing captured for this contact yet. Capture a signal to start the evidence trace.",
     evidence: {
-      facts: [],
+      profile: emptyProfile(),
+      sourceLabels: [],
+      sources: [],
       sourceCount: 0,
       warnings: [],
       confidence: {
@@ -692,25 +733,160 @@ function fallbackPerson(): PersonIntelligenceViewModel {
         finalConfidence: 0,
       },
     },
+    recommendation: {
+      title: "No recommendation yet",
+      reason: "Capture or enrich more context to produce a decision trace.",
+      avoid: "Do not contact until the context is clear enough.",
+      draft: "No draft has been generated yet.",
+      whyNow: [],
+      whyThisAction: [],
+      whyNot: [],
+      whatToAvoid: [],
+      risks: [],
+      safeFacts: [],
+      blockedFacts: [],
+      costOfSilence: "Not scored by daily policy",
+    },
   };
 }
 
-function demoOutcomeWithTypes(): OutcomeLoopViewModel {
-  const outcomeTypes: OutcomeType[] = [
-    "reply",
-    "booked",
-    "wtp",
-    "paid",
-    "marked_not_relevant",
-    "ignored",
+// Per-opportunity-type labels for the conversion outcomes. The underlying
+// OutcomeType values stay fixed; only the surfaced labels (and whether a WTP
+// step is relevant) change with the relationship's goal.
+const OUTCOME_LABELS_BY_TYPE: Record<
+  OpportunityType,
+  { booked: string; wtp?: string; paid: string }
+> = {
+  raise: { booked: "Pitch booked", wtp: "Soft commit", paid: "Committed / invested" },
+  hire: { booked: "Interview booked", paid: "Hired / offer out" },
+  candidate: { booked: "Interview booked", paid: "Hired / offer out" },
+  job: { booked: "Interview booked", paid: "Offer received" },
+  user: { booked: "Demo booked", wtp: "WTP signal", paid: "Activated / paid" },
+  customer: { booked: "Demo booked", wtp: "WTP signal", paid: "Paid / converted" },
+  partner: { booked: "Meeting booked", wtp: "Verbal interest", paid: "Partnership signed" },
+  sponsor: { booked: "Meeting booked", wtp: "Verbal interest", paid: "Sponsorship committed" },
+  mentor: { booked: "Session booked", paid: "Ongoing mentorship" },
+  community: { booked: "Meeting booked", paid: "Joined / committed" },
+  other: { booked: "Meeting booked", wtp: "WTP signal", paid: "Converted" },
+};
+
+function outcomeLoopOptions(opportunityType?: OpportunityType): OutcomeLoopViewModel["options"] {
+  const labels = OUTCOME_LABELS_BY_TYPE[opportunityType ?? "other"];
+  const options: OutcomeLoopViewModel["options"] = [
+    { id: "reply", label: "Replied", kind: "positive", outcomeType: "reply" },
+    { id: "booked", label: labels.booked, kind: "positive", outcomeType: "booked" },
   ];
+  if (labels.wtp) {
+    options.push({ id: "wtp", label: labels.wtp, kind: "positive", outcomeType: "wtp" });
+  }
+  options.push(
+    { id: "paid", label: labels.paid, kind: "positive", outcomeType: "paid" },
+    { id: "not-relevant", label: "Not relevant", kind: "negative", outcomeType: "marked_not_relevant" },
+    { id: "no-response", label: "No response", kind: "neutral", outcomeType: "ignored" },
+  );
+  return options;
+}
+
+function emptyOutcomeLoop(userId: Id): OutcomeLoopViewModel {
   return {
-    ...demoOutcomeLoop,
-    options: demoOutcomeLoop.options.map((option, index) => ({
-      ...option,
-      outcomeType: outcomeTypes[index] ?? "manual_override",
-    })),
+    state: "empty",
+    summary: tractionSummary(userId),
+    contact: {
+      name: "No move to log",
+      role: "Outcome loop",
+      company: "",
+      initials: "—",
+      location: "Capture a relationship and act on a recommendation to start the loop.",
+    },
+    prompt: "Nothing to log yet",
+    options: outcomeLoopOptions(),
   };
+}
+
+interface EvidenceSource {
+  sourceName: string;
+  sourceUrl?: string;
+  provenance: EvidenceProvenance;
+  sourceLabel: string;
+}
+
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const text = value.trim();
+    const key = text.toLowerCase();
+    if (!text || seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+  }
+  return out;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return dedupeStrings(value.filter((item): item is string => typeof item === "string"));
+}
+
+function emptyProfile(): EvidenceProfile {
+  return { summary: "", expertise: [], highlights: [], signals: [] };
+}
+
+/** The cohesive profile synthesized at enrichment time, if one was persisted. */
+function readStoredProfile(contactId: Id): EvidenceProfile | null {
+  for (const ctx of listPublicContext(contactId)) {
+    const raw = ctx.rawContext;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const profile = (raw as Record<string, unknown>).profile;
+    if (profile && typeof profile === "object" && !Array.isArray(profile)) {
+      const record = profile as Record<string, unknown>;
+      return {
+        summary: asString(record.summary) ?? "",
+        role: asString(record.role),
+        company: asString(record.company),
+        sector: asString(record.sector),
+        location: asString(record.location),
+        expertise: asStringArray(record.expertise),
+        highlights: asStringArray(record.highlights),
+        signals: asStringArray(record.signals),
+      };
+    }
+  }
+  return null;
+}
+
+/** Deterministic merge of the raw facts into one structure — used when no LLM
+ *  synthesis was persisted, so the screen still shows a single cohesive card. */
+function deterministicProfile(
+  facts: Array<{ text: string; factConfidence: number }>,
+  contact: { role?: string | null; company?: string | null },
+): EvidenceProfile {
+  const ordered = [...facts].sort((left, right) => right.factConfidence - left.factConfidence);
+  const highlights = dedupeStrings(ordered.map((fact) => fact.text)).slice(0, 8);
+  return {
+    summary: highlights[0] ?? "",
+    role: contact.role ?? undefined,
+    company: contact.company ?? undefined,
+    expertise: [],
+    highlights,
+    signals: [],
+  };
+}
+
+function dedupeSources(sources: EvidenceSource[]): EvidenceSource[] {
+  const seen = new Set<string>();
+  const out: EvidenceSource[] = [];
+  for (const source of sources) {
+    const key = `${source.sourceName}::${source.sourceUrl ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(source);
+  }
+  return out;
 }
 
 export function getPersonIntelligenceViewModel(
@@ -726,7 +902,7 @@ export function getPersonIntelligenceViewModel(
     (contactId ? getContact(contactId) : null) ??
     (selectedRec ? getContact(selectedRec.contactId) : null);
 
-  if (!contact) return fallbackPerson();
+  if (!contact) return emptyPerson();
 
   const rec =
     selectedRec ??
@@ -740,15 +916,42 @@ export function getPersonIntelligenceViewModel(
   const evidenceFacts = listEvidenceFacts(contact.id)
     .sort((left, right) => right.factConfidence - left.factConfidence)
     .slice(0, 5);
-  const sourceCount = listSourceRecords(contact.id).length;
+  const sourceRecords = listSourceRecords(contact.id);
+  const sourceCount = sourceRecords.length;
+  const sourceById = new Map(sourceRecords.map((source) => [source.id, source]));
   const confidence = rec?.explanation.confidenceBreakdown;
   const safeFacts = rec?.explanation.safeFactsUsed ?? [];
-  const facts = evidenceFacts.length
-    ? evidenceFacts.map((fact) => fact.fact)
-    : safeFacts.slice(0, 5);
+  const facts = evidenceFacts.map((fact) => {
+    const source = fact.sourceRecordId ? sourceById.get(fact.sourceRecordId) : undefined;
+    const sourceType = source?.sourceType ?? fact.sourceType;
+    const sourceUrl = source?.sourceUrl ?? undefined;
+    return {
+      id: fact.id,
+      text: fact.fact,
+      factConfidence: fact.factConfidence,
+      safeForDraft: fact.safeForDraft,
+      sourceName: source?.sourceName ?? "Unknown source",
+      sourceUrl,
+      sourceType,
+      ...evidenceProvenance({ sourceType, sourceUrl })
+    };
+  });
 
   const company = contact.company ?? "Unknown company";
   const role = contact.role ?? "Relationship contact";
+
+  const sources = dedupeSources(
+    facts.map((fact) => ({
+      sourceName: fact.sourceName,
+      sourceUrl: fact.sourceUrl,
+      provenance: fact.provenance,
+      sourceLabel: fact.sourceLabel,
+    })),
+  );
+  const sourceLabels = Array.from(new Set(sources.map((source) => source.sourceLabel)));
+  const profile =
+    readStoredProfile(contact.id) ??
+    deterministicProfile(facts, { role: contact.role, company: contact.company });
 
   return {
     contactId: contact.id,
@@ -759,6 +962,10 @@ export function getPersonIntelligenceViewModel(
       company,
       initials: initials(contact.name),
       location: contact.website ?? contact.linkedinUrl ?? "Captured from conversation",
+      email: contact.email ?? undefined,
+      phone: contact.phone ?? undefined,
+      website: contact.website ?? undefined,
+      linkedinUrl: contact.linkedinUrl ?? undefined,
     },
     warmth: warmthLabel(rec),
     missionFit: missionFitLabel(confidence?.userGoalFit ?? 0.5),
@@ -768,7 +975,9 @@ export function getPersonIntelligenceViewModel(
         ? `${facts.length || safeFacts.length} usable fact${facts.length === 1 ? "" : "s"} and ${sourceCount} public source${sourceCount === 1 ? "" : "s"} inform this recommendation.`
       : "Captured contact is ready for enrichment and recommendation.",
     evidence: {
-      facts,
+      profile,
+      sourceLabels,
+      sources,
       sourceCount,
       warnings: rec?.explanation.warnings ?? [],
       confidence: {
@@ -807,7 +1016,7 @@ export function getOutcomeLoopViewModel(userId = DEMO_USER_ID): OutcomeLoopViewM
   const target =
     recs.find((rec) => rec.status === "pending" || rec.status === "sent") ??
     recs[0];
-  if (!target) return demoOutcomeWithTypes();
+  if (!target) return emptyOutcomeLoop(userId);
 
   const contact = contactFor(target);
   const contactName = contact?.name ?? "this relationship";
@@ -829,14 +1038,7 @@ export function getOutcomeLoopViewModel(userId = DEMO_USER_ID): OutcomeLoopViewM
       contactId: target.contactId,
       recommendationId: target.id,
     },
-    options: [
-      { id: "reply", label: "Replied", kind: "positive", outcomeType: "reply" },
-      { id: "booked", label: "Meeting booked", kind: "positive", outcomeType: "booked" },
-      { id: "wtp", label: "WTP signal", kind: "positive", outcomeType: "wtp" },
-      { id: "paid", label: "Paid / converted", kind: "positive", outcomeType: "paid" },
-      { id: "not-relevant", label: "Not relevant", kind: "negative", outcomeType: "marked_not_relevant" },
-      { id: "no-response", label: "No response", kind: "neutral", outcomeType: "ignored" },
-    ],
+    options: outcomeLoopOptions(target.explanation.chosenRoute.type),
   };
 }
 

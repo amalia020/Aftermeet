@@ -94,6 +94,8 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
       { name: "Enrichment", description: "Cala and web fallback enrichment" },
       { name: "Recommendations", description: "Decision engine and draft generation" },
       { name: "Outcomes", description: "Outcome tracking and traction summaries" },
+      { name: "Contacts", description: "Contact confirmation and deletion" },
+      { name: "Evidence", description: "User-controlled evidence management" },
       { name: "Diagnostics", description: "Provider and demo diagnostics" },
       { name: "Demo", description: "Demo store utilities" },
       {
@@ -186,6 +188,51 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
           }),
           responses: {
             "202": jsonResponse(ref("CaptureAcceptedResponse"), "Capture accepted"),
+            ...errorResponses()
+          }
+        }
+      },
+      "/api/contacts/[id]": {
+        patch: {
+          tags: ["Contacts"],
+          summary: "Confirm and correct contact identity",
+          description:
+            "Persists reviewed identity fields as user-confirmed evidence and regenerates the recommendation when an evidence bundle is available.",
+          parameters: [
+            { name: "id", in: "path", required: true, schema: stringSchema }
+          ],
+          requestBody: jsonRequest(ref("ContactConfirmationRequest")),
+          responses: {
+            "200": jsonResponse(ref("ContactConfirmationResponse")),
+            "404": jsonResponse(ref("ErrorResponse"), "Contact not found"),
+            ...errorResponses()
+          }
+        },
+        delete: {
+          tags: ["Contacts"],
+          summary: "Delete a contact and related records",
+          parameters: [
+            { name: "id", in: "path", required: true, schema: stringSchema },
+            { name: "userId", in: "query", required: true, schema: stringSchema }
+          ],
+          responses: {
+            "200": jsonResponse(ref("ContactDeleteResponse")),
+            "404": jsonResponse(ref("ErrorResponse"), "Contact not found"),
+            ...errorResponses()
+          }
+        }
+      },
+      "/api/evidence/[id]": {
+        delete: {
+          tags: ["Evidence"],
+          summary: "Remove an evidence fact",
+          parameters: [
+            { name: "id", in: "path", required: true, schema: stringSchema },
+            { name: "userId", in: "query", required: true, schema: stringSchema }
+          ],
+          responses: {
+            "200": jsonResponse(ref("EvidenceFactDeleteResponse")),
+            "404": jsonResponse(ref("ErrorResponse"), "Evidence fact not found"),
             ...errorResponses()
           }
         }
@@ -727,11 +774,44 @@ export function createOpenApiDocument(origin = "http://127.0.0.1:3000"): OpenApi
             {
               type: "object",
               properties: {
-                cardStatus: { type: "string", enum: ["captured", "manual_fallback"] }
+                cardStatus: { type: "string", enum: ["captured", "manual_fallback"] },
+                cardText: stringSchema,
+                contactCandidate: ref("ContactCandidate"),
+                recognitionProvider: { type: "string", enum: ["gemini"] },
+                recognitionModel: stringSchema,
+                warnings: { type: "array", items: stringSchema }
               },
               required: ["cardStatus"]
             }
           ]
+        },
+        ContactConfirmationRequest: {
+          allOf: [
+            ref("ContactCandidate"),
+            {
+              type: "object",
+              properties: { userId: stringSchema },
+              required: ["userId"]
+            }
+          ]
+        },
+        ContactConfirmationResponse: {
+          type: "object",
+          properties: {
+            contact: { type: "object", additionalProperties: true },
+            recommendationPackage: ref("RecommendationPackage")
+          },
+          required: ["contact"]
+        },
+        ContactDeleteResponse: {
+          type: "object",
+          properties: { deleted: { type: "boolean" }, contactId: stringSchema },
+          required: ["deleted", "contactId"]
+        },
+        EvidenceFactDeleteResponse: {
+          type: "object",
+          properties: { deleted: { type: "boolean" }, factId: stringSchema },
+          required: ["deleted", "factId"]
         },
         ProcessConversationRequestBody: {
           type: "object",

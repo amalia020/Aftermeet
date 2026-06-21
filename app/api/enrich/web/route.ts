@@ -44,11 +44,19 @@ export async function POST(request: Request) {
       role: body.role,
       query
     });
-    const allowUncitedClaims = body.allowUncitedClaims === true;
+    const allowUncitedClaims = body.allowUncitedClaims !== false;
     const citedClaims = web.claims.filter((claim) => claim.sourceUrl);
     const uncitedClaims = web.claims.filter((claim) => !claim.sourceUrl);
     const claims = allowUncitedClaims ? web.claims : citedClaims;
     const warnings: string[] = [...(web.warnings ?? [])];
+    if (
+      typeof body.calaMatchConfidence === "number" &&
+      body.calaMatchConfidence < 0.5
+    ) {
+      warnings.push(
+        "Cala entity confidence is below 50%. Gemini fallback context may be inaccurate and requires confirmation."
+      );
+    }
     if (!web.available) {
       warnings.push(
         "Gemini web fallback found no grounded professional context for this query."

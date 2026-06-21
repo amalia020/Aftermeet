@@ -93,7 +93,9 @@ export async function POST(request: Request) {
     const cala = (await calaResponse.json()) as CalaEnrichmentResponse;
 
     const shouldRunWebFallback =
-      body.includeWebFallback === true || (body.includeWebFallback !== false && !cala.available);
+      body.includeWebFallback === true ||
+      (body.includeWebFallback !== false &&
+        (!cala.available || cala.entityMatchConfidence < 0.5));
 
     let webFallback: WebFallbackResponse | undefined;
     if (shouldRunWebFallback) {

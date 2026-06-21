@@ -635,7 +635,7 @@ Use:
 * Web search enrichment runs only as a fallback when Cala has no match, and only for contacts the user actually met.
 * Web search returns professional/public context only. Discard anything personal, sensitive, or non-professional.
 * Treat unstructured web facts as lower confidence than Cala-verified facts. They may inform scoring but are not draft-safe unless confidence clears threshold and ideally the user confirms.
-* Every web-derived fact must carry a source record with the citation URL. No citation, not usable.
+* Cited web facts carry source records with citation URLs. Uncited professional claims may be shown only as low-confidence, unverified context; they are never draft-safe without confirmation.
 * Do not auto-send messages.
 * Do not enrich strangers the user did not meet.
 * Do not store sensitive personal data.
@@ -1393,8 +1393,8 @@ Each returned claim becomes an `evidence_fact` backed by its own `source_record`
 
 * Gemini key stays server-side.
 * Web search runs only as a fallback after Cala, only for met contacts.
-* Every web fact has a source record with a citation URL.
-* No citation, the fact is discarded.
+* Every web fact has a source record. Cited facts retain the grounding URL.
+* No citation downgrades the claim to unverified context with low confidence and blocks draft use.
 * Personal, sensitive, or non-professional content is filtered out.
 * Web facts are lower confidence than Cala facts and are not draft-safe by default.
 * If Gemini returns `available=false`, system says "public context unavailable."

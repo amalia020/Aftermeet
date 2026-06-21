@@ -1,9 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
+  AlertTriangle,
   Check,
+  ExternalLink,
   Trash2,
   Edit3,
   Heart,
@@ -33,7 +36,44 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
   const [draft, setDraft] = useState(person.recommendation.draft);
   const [busyOutcome, setBusyOutcome] = useState<OutcomeType | null>(null);
   const [savedOutcome, setSavedOutcome] = useState<OutcomeType | null>(null);
+  const [confirmationOpen, setConfirmationOpen] = useState(false);
+  const [savingDetails, setSavingDetails] = useState(false);
+  const [deletingContact, setDeletingContact] = useState(false);
+  const [details, setDetails] = useState({
+    name: person.contact.name,
+    role: person.contact.role,
+    company: person.contact.company,
+    email: person.contact.email ?? "",
+    phone: person.contact.phone ?? "",
+    website: person.contact.website ?? "",
+    linkedinUrl: person.contact.linkedinUrl ?? "",
+  });
   const needsDetailsConfirmation = person.recommendation.actionKey === "confirm_details";
+
+  if (person.state === "empty") {
+    return (
+      <section className="screen person-screen">
+        <div className="person-header">
+          <Avatar initials={person.contact.initials} tone="muted" size="lg" />
+          <div>
+            <h1>{person.contact.name}</h1>
+            <span className="location-line">
+              <MapPin size={15} />
+              {person.contact.location}
+            </span>
+          </div>
+        </div>
+        <div className="system-note">
+          <span>System note</span>
+          <p>{person.systemNote}</p>
+        </div>
+        <Link className="primary-action" href="/capture">
+          <Send size={17} />
+          <span>Capture a signal</span>
+        </Link>
+      </section>
+    );
+  }
 
   const recordOutcome = async (outcomeType: OutcomeType) => {
     if (!person.recommendation.contactId) return;
@@ -55,6 +95,40 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
       if (outcomeType === "marked_not_relevant") router.push("/");
     } finally {
       setBusyOutcome(null);
+    }
+  };
+
+  const saveConfirmedDetails = async () => {
+    if (!person.recommendation.contactId) return;
+    setSavingDetails(true);
+    try {
+      const response = await fetch(`/api/contacts/${person.recommendation.contactId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: "user_demo", ...details }),
+      });
+      if (!response.ok) throw new Error("Unable to confirm contact details.");
+      setSavedOutcome("details_confirmed");
+      setConfirmationOpen(false);
+      router.refresh();
+    } finally {
+      setSavingDetails(false);
+    }
+  };
+
+  const removeContact = async () => {
+    if (!person.recommendation.contactId || !window.confirm("Delete this contact and all related evidence?")) return;
+    setDeletingContact(true);
+    try {
+      const response = await fetch(
+        `/api/contacts/${person.recommendation.contactId}?userId=user_demo`,
+        { method: "DELETE" },
+      );
+      if (!response.ok) throw new Error("Unable to delete contact.");
+      router.push("/capture");
+      router.refresh();
+    } finally {
+      setDeletingContact(false);
     }
   };
 
@@ -129,16 +203,48 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
             <strong>{percent(person.evidence.confidence.finalConfidence)}</strong>
           </div>
         </div>
-        {person.evidence.facts.length ? (
-          <ul className="evidence-list">
-            {person.evidence.facts.map((fact, index) => (
-              <li key={listItemKey(fact, index)}>{fact}</li>
-            ))}
-          </ul>
-        ) : (
-          <p className="evidence-empty">No safe evidence facts have been persisted yet.</p>
-        )}
+        <EvidenceProfileCard
+          profile={person.evidence.profile}
+          sources={person.evidence.sources}
+        />
+        {person.evidence.warnings.map((warning, index) => (
+          <div className="analysis-alert" key={listItemKey(warning, index)} role="status">
+            <AlertTriangle size={18} />
+            <span>{warning}</span>
+          </div>
+        ))}
       </article>
+
+      {confirmationOpen ? (
+        <section className="confirmation-panel" aria-label="Confirm contact details">
+          <div className="section-label">
+            <Check size={17} />
+            <span>Confirm identity</span>
+          </div>
+          <div className="confirmation-grid">
+            {Object.entries(details).map(([field, value]) => (
+              <label key={field}>
+                <span>{field === "linkedinUrl" ? "LinkedIn URL" : field}</span>
+                <input
+                  onChange={(event) =>
+                    setDetails((current) => ({ ...current, [field]: event.target.value }))
+                  }
+                  value={value}
+                />
+              </label>
+            ))}
+          </div>
+          <div className="confirmation-actions">
+            <button className="primary-action" disabled={savingDetails} onClick={saveConfirmedDetails} type="button">
+              <Check size={17} />
+              {savingDetails ? "Saving" : "Save confirmed details"}
+            </button>
+            <button className="secondary-action" onClick={() => setConfirmationOpen(false)} type="button">
+              Cancel
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       <article className="evidence-panel">
         <div className="section-label">
@@ -201,10 +307,10 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
           <button
             className="primary-action"
             disabled={busyOutcome !== null}
-            onClick={() => recordOutcome("details_confirmed")}
+            onClick={() => setConfirmationOpen(true)}
           >
             <Check size={17} />
-            {savedOutcome === "details_confirmed" ? "Details confirmed" : "Confirm details"}
+            {savedOutcome === "details_confirmed" ? "Details confirmed" : "Review details"}
           </button>
         ) : (
           <button
@@ -234,13 +340,112 @@ export function PersonIntelligence({ person }: { person: PersonIntelligenceViewM
         </button>
         <button
           className="secondary-action danger-action"
-          disabled={busyOutcome !== null}
-          onClick={() => recordOutcome("marked_not_relevant")}
+          disabled={busyOutcome !== null || deletingContact}
+          onClick={removeContact}
         >
           <Trash2 size={17} />
-          Delete
+          {deletingContact ? "Deleting" : "Delete"}
         </button>
       </div>
     </section>
+  );
+}
+
+function EvidenceProfileCard({
+  profile,
+  sources,
+}: {
+  profile: PersonIntelligenceViewModel["evidence"]["profile"];
+  sources: PersonIntelligenceViewModel["evidence"]["sources"];
+}) {
+  const hasProfile = Boolean(
+    profile.summary ||
+      profile.highlights.length ||
+      profile.expertise.length ||
+      profile.signals.length ||
+      profile.sector ||
+      profile.location,
+  );
+
+  if (!hasProfile) {
+    return <p className="evidence-empty">No public context has been synthesized yet.</p>;
+  }
+
+  const attributes = (
+    [
+      profile.role ? { label: "Role", value: profile.role } : null,
+      profile.company ? { label: "Company", value: profile.company } : null,
+      profile.sector ? { label: "Sector", value: profile.sector } : null,
+      profile.location ? { label: "Location", value: profile.location } : null,
+    ] as ({ label: string; value: string } | null)[]
+  ).filter((attr): attr is { label: string; value: string } => attr !== null);
+
+  return (
+    <div className="evidence-profile">
+      {profile.summary ? <p className="evidence-profile-summary">{profile.summary}</p> : null}
+
+      {attributes.length ? (
+        <div className="evidence-profile-attributes">
+          {attributes.map((attr) => (
+            <div key={attr.label}>
+              <span>{attr.label}</span>
+              <strong>{attr.value}</strong>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {profile.expertise.length ? (
+        <div className="evidence-profile-tags">
+          {profile.expertise.map((item, index) => (
+            <span className="evidence-tag" key={listItemKey(item, index)}>
+              {item}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      {profile.highlights.length ? (
+        <div className="evidence-profile-group">
+          <strong>Highlights</strong>
+          <ul>
+            {profile.highlights.map((item, index) => (
+              <li key={listItemKey(item, index)}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {profile.signals.length ? (
+        <div className="evidence-profile-group">
+          <strong>Signals</strong>
+          <ul>
+            {profile.signals.map((item, index) => (
+              <li key={listItemKey(item, index)}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {sources.length ? (
+        <div className="evidence-profile-sources">
+          <span>Synthesized from</span>
+          {sources.map((source, index) => (
+            <span
+              className={`source-status source-${source.provenance}`}
+              key={listItemKey(source.sourceName, index)}
+            >
+              {source.sourceUrl ? (
+                <a href={source.sourceUrl} rel="noreferrer" target="_blank">
+                  {source.sourceLabel} <ExternalLink size={12} />
+                </a>
+              ) : (
+                source.sourceLabel
+              )}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }

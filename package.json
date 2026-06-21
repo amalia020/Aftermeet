@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:webapp": "node scripts/webapp-audit.mjs",
     "smoke:tom": "bash scripts/smoke-tom-cala.sh",
     "smoke:workflow": "bash scripts/smoke-workflow.sh"
   },
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
+    "@playwright/test": "^1.61.0",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
@@ -29,7 +31,7 @@
     "eslint-config-next": "^15.1.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.0.0",
-    "vitest": "^2.1.0"
+    "vitest": "^4.1.9"
   },
   "overrides": {
     "postcss": "^8.5.10"

@@ -199,6 +199,30 @@ export function upsertContact(contact: Contact): Contact {
   return updateDatabase((db) => upsertById(db.contacts, contact));
 }
 
+export function updateContactDetails(input: {
+  contactId: Id;
+  userId: Id;
+  candidate: ContactCandidate;
+  entityMatchConfidence?: number;
+}): Contact | null {
+  return updateDatabase((db) => {
+    const contact = db.contacts.find(
+      (existing) => existing.id === input.contactId && existing.userId === input.userId,
+    );
+    if (!contact) return null;
+    contact.name = input.candidate.name ?? null;
+    contact.role = input.candidate.role ?? null;
+    contact.company = input.candidate.company ?? null;
+    contact.email = input.candidate.email ?? null;
+    contact.phone = input.candidate.phone ?? null;
+    contact.website = input.candidate.website ?? null;
+    contact.linkedinUrl = input.candidate.linkedinUrl ?? null;
+    contact.entityMatchConfidence = input.entityMatchConfidence ?? contact.entityMatchConfidence;
+    contact.updatedAt = nowIso();
+    return contact;
+  });
+}
+
 export function upsertContactFromCandidate(input: {
   userId: Id;
   candidate: ContactCandidate;
@@ -252,12 +276,31 @@ export function upsertContactFromCandidate(input: {
   });
 }
 
-export function deleteContact(contactId: Id): void {
-  updateDatabase((db) => {
+export function deleteContact(contactId: Id, userId?: Id): boolean {
+  return updateDatabase((db) => {
+    const contact = db.contacts.find(
+      (candidate) => candidate.id === contactId && (!userId || candidate.userId === userId),
+    );
+    if (!contact) return false;
+    const conversationIds = new Set(
+      db.conversations.filter((conversation) => conversation.contactId === contactId).map((conversation) => conversation.id),
+    );
+    const recommendationIds = new Set(
+      db.actionRecommendations.filter((recommendation) => recommendation.contactId === contactId).map((recommendation) => recommendation.id),
+    );
     db.contacts = db.contacts.filter((contact) => contact.id !== contactId);
+    db.conversations = db.conversations.filter((conversation) => !conversationIds.has(conversation.id));
+    db.conversationAtoms = db.conversationAtoms.filter((atoms) => !conversationIds.has(atoms.conversationId));
     db.evidenceFacts = db.evidenceFacts.filter((fact) => fact.contactId !== contactId);
     db.publicEntityContext = db.publicEntityContext.filter((context) => context.contactId !== contactId);
     db.sourceRecords = db.sourceRecords.filter((source) => source.contactId !== contactId);
+    db.extractionHandoffs = db.extractionHandoffs.filter((handoff) => handoff.conversation.contactId !== contactId);
+    db.evidenceBundles = db.evidenceBundles.filter((bundle) => bundle.contactId !== contactId);
+    db.opportunityRoutes = db.opportunityRoutes.filter((route) => route.contactId !== contactId);
+    db.actionRecommendations = db.actionRecommendations.filter((recommendation) => recommendation.contactId !== contactId);
+    db.drafts = db.drafts.filter((draft) => recommendationIds.has(draft.recommendationId) === false);
+    db.outcomes = db.outcomes.filter((outcome) => outcome.contactId !== contactId);
+    return true;
   });
 }
 
@@ -338,6 +381,10 @@ export function saveEvidenceFact(fact: EvidenceFact): EvidenceFact {
 
 export function listEvidenceFacts(contactId: Id): EvidenceFact[] {
   return readDatabase().evidenceFacts.filter((fact) => fact.contactId === contactId);
+}
+
+export function getEvidenceFact(factId: Id): EvidenceFact | null {
+  return readDatabase().evidenceFacts.find((fact) => fact.id === factId) ?? null;
 }
 
 export function deleteEvidenceFact(factId: Id): void {

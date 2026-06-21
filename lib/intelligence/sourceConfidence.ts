@@ -26,6 +26,7 @@ export const SOURCE_PRIORS: Record<SourceType, number> = {
   cala_verified_fact: 0.82,
   personal_website: 0.75,
   search_snippet: 0.45,
+  user_confirmed: 0.98,
   manual: 0.7,
   unknown: 0.2,
 };
@@ -46,6 +47,8 @@ function provenanceScore(source: SourceRecord): number {
   switch (source.sourceType) {
     case "cala_verified_fact":
       return 0.9;
+    case "user_confirmed":
+      return 1;
     case "business_card":
     case "user_voice_note":
     case "manual":

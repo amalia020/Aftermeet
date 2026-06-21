@@ -64,7 +64,7 @@ describe("enrichment coordinator", () => {
     expect(bundle.publicContext).toEqual([]);
   });
 
-  it("discards uncited web claims during fallback", async () => {
+  it("retains uncited web claims as low-confidence context", async () => {
     process.env.GEMINI_API_KEY = "test-key";
     vi.stubGlobal(
       "fetch",
@@ -98,8 +98,15 @@ describe("enrichment coordinator", () => {
     const bundle = await enrichEvidence(handoff);
 
     expect(bundle.enrichment.webFallbackAttempted).toBe(true);
-    expect(bundle.sourceRecords.filter((source) => source.provider === "web")).toHaveLength(1);
-    expect(bundle.enrichment.warnings.join(" ")).toContain("discarded");
+    expect(bundle.enrichment.warnings.join(" ")).toContain("may be inaccurate");
+    expect(bundle.sourceRecords.filter((source) => source.provider === "web")).toHaveLength(2);
+    const uncitedFact = bundle.evidenceFacts.find((fact) => fact.fact === "No citation claim");
+    expect(uncitedFact?.sourceType).toBe("unknown");
+    expect(uncitedFact?.safeForDraft).toBe(false);
+    expect(uncitedFact?.extractionConfidence).toBe(0.35);
+    expect(bundle.enrichment.warnings.join(" ")).toContain(
+      "retained as low-confidence context"
+    );
     vi.unstubAllGlobals();
   });
 });

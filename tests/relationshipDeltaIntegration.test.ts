@@ -19,6 +19,7 @@ import {
 } from "@/lib/db/queries";
 import { buildRelationshipMoveInputs, selectStoredDailyMoves } from "@/lib/intelligence/layer5/adapters";
 import {
+  evidenceProvenance,
   getDailyBriefViewModel,
   getPersonIntelligenceViewModel,
   getRelationshipBoardViewModel
@@ -193,6 +194,34 @@ describe("Part 5 stored adapter", () => {
 });
 
 describe("Part 5 frontend view models", () => {
+  it("distinguishes captured, confirmed, cited, and AI-suggested evidence", () => {
+    expect(evidenceProvenance({ sourceType: "user_voice_note" })).toEqual({
+      provenance: "captured",
+      sourceLabel: "Captured by you"
+    });
+    expect(evidenceProvenance({ sourceType: "user_confirmed" })).toEqual({
+      provenance: "confirmed",
+      sourceLabel: "Confirmed by you"
+    });
+    expect(evidenceProvenance({ sourceType: "cala_verified_fact" })).toEqual({
+      provenance: "cited",
+      sourceLabel: "Cala-verified public source"
+    });
+    expect(
+      evidenceProvenance({
+        sourceType: "reputable_news",
+        sourceUrl: "https://reuters.com/example"
+      })
+    ).toEqual({
+      provenance: "cited",
+      sourceLabel: "Cited public source"
+    });
+    expect(evidenceProvenance({ sourceType: "unknown" })).toEqual({
+      provenance: "ai_suggested",
+      sourceLabel: "AI-suggested; verify before use"
+    });
+  });
+
   it("uses Part 5 daily moves in the brief without low-priority filler", () => {
     saveDemoRelationship();
     saveDemoRelationship({

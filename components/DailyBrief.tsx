@@ -169,12 +169,12 @@ export function DailyBrief({ brief }: { brief: DailyBriefViewModel }) {
       <article className="attention-card gap-card">
         <div className="attention-label">
           <CalendarClock size={18} />
-          <span>Mission gap</span>
+          <span>Setup gap</span>
         </div>
         <p>{brief.missionGap}</p>
-        <Link className="primary-action" href={brief.activeObjective ? "/terminal" : "/objective"}>
+        <Link className="primary-action" href={brief.activeObjective ? "/capture" : "/objective"}>
           <Search size={17} />
-          <span>{brief.activeObjective ? "Open radar" : "Set mission"}</span>
+          <span>{brief.activeObjective ? "Capture signal" : "Open setup"}</span>
         </Link>
       </article>
     </section>

@@ -77,6 +77,22 @@ export interface WebContextClaim {
   sourceType: SourceType;
 }
 
+/**
+ * Cohesive profile synthesized from every source (Cala, web, captured notes)
+ * for one contact — the single structured view rendered on the contact screen
+ * instead of one card per raw fact.
+ */
+export interface EvidenceProfile {
+  summary: string;
+  role?: string;
+  company?: string;
+  sector?: string;
+  location?: string;
+  expertise: string[];
+  highlights: string[];
+  signals: string[];
+}
+
 export interface WebContextResult {
   summary: string;
   claims: WebContextClaim[];

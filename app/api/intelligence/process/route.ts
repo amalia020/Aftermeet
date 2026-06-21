@@ -26,6 +26,8 @@ import {
   getActiveObjective,
   getConversation,
   saveAtoms,
+  saveEvidenceBundle,
+  saveExtractionHandoff,
   upsertContact,
   upsertConversation,
 } from "@/lib/db/queries";
@@ -293,10 +295,12 @@ async function runPipeline(
       sourceConfidence: 0.72,
     },
   };
+  saveExtractionHandoff(handoff);
 
   // --- resolving_entity + retrieving_context (Part 2) ---
   emitter.emit("resolving_entity", "started");
   const enrichment = await runEnrichment(handoff);
+  saveEvidenceBundle(enrichment.bundle);
   emitter.emit(
     "resolving_entity",
     enrichment.mode === "fallback" ? "fallback" : "completed",

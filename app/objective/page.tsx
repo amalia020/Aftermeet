@@ -8,7 +8,7 @@ export default function ObjectivePage() {
   const objective = getObjectiveViewModel();
 
   return (
-    <AppShell active="mission">
+    <AppShell active="setup">
       <ObjectiveEditor objective={objective} />
     </AppShell>
   );
